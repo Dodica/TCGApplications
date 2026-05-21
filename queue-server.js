@@ -52,64 +52,58 @@ const requestHandler = async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/health") {
       sendJson(res, 200, {
         ok: true,
-        service: "konami-entry-queue",
+        service: "entry-queue",
         time: new Date().toISOString()
       });
       return;
     }
 
-    const scanMatch = url.pathname.match(/^\/api\/tournaments\/([^/]+)\/scans$/);
-    if (scanMatch && req.method === "POST") {
+    if (req.method === "POST" && url.pathname === "/api/scans") {
       const body = await readJson(req);
       if (!hasScanAccess(body, url)) {
         sendJson(res, 403, { ok: false, error: "Invalid scan token." });
         return;
       }
 
-      const tournamentNo = decodeURIComponent(scanMatch[1]);
-      const cardGameId = normalizeId(body.cardGameId);
+      const id = normalizeId(body.id);
       const scannerName = cleanText(body.scannerName || body.deviceName || "phone", 40);
 
-      if (!/^\d{10}$/.test(cardGameId)) {
-        sendJson(res, 400, { ok: false, error: "Card Game ID must be 10 digits." });
+      if (!/^\d{10}$/.test(id)) {
+        sendJson(res, 400, { ok: false, error: "ID must be exactly 10 digits." });
         return;
       }
 
-      const entry = addScan(tournamentNo, cardGameId, scannerName);
+      const entry = addScan(id, scannerName);
       saveStore();
       sendJson(res, 200, { ok: true, entry });
       return;
     }
 
-    const queueMatch = url.pathname.match(/^\/api\/tournaments\/([^/]+)\/queue$/);
-    if (queueMatch && req.method === "GET") {
+    if (req.method === "GET" && url.pathname === "/api/queue") {
       if (!hasAdminAccess(req, url)) {
         sendJson(res, 403, { ok: false, error: "Invalid admin token." });
         return;
       }
 
-      const tournamentNo = decodeURIComponent(queueMatch[1]);
       sendJson(res, 200, {
         ok: true,
-        tournamentNo,
-        entries: getTournament(tournamentNo).entries,
-        nextQueueNo: formatQueueNo(getTournament(tournamentNo).nextNumber),
+        entries: store.entries,
+        nextQueueNo: formatQueueNo(store.nextNumber),
         updatedAt: new Date().toISOString()
       });
       return;
     }
 
-    const entryMatch = url.pathname.match(/^\/api\/tournaments\/([^/]+)\/queue\/([^/]+)$/);
+    const entryMatch = url.pathname.match(/^\/api\/queue\/([^/]+)$/);
     if (entryMatch && req.method === "PATCH") {
       if (!hasAdminAccess(req, url)) {
         sendJson(res, 403, { ok: false, error: "Invalid admin token." });
         return;
       }
 
-      const tournamentNo = decodeURIComponent(entryMatch[1]);
-      const queueNo = normalizeQueueNo(decodeURIComponent(entryMatch[2]));
+      const queueNo = normalizeQueueNo(decodeURIComponent(entryMatch[1]));
       const body = await readJson(req);
-      const result = updateQueueEntry(tournamentNo, queueNo, body);
+      const result = updateQueueEntry(queueNo, body);
 
       if (!result) {
         sendJson(res, 404, { ok: false, error: "Queue number not found." });
@@ -132,18 +126,18 @@ const server = http.createServer(requestHandler);
 server.listen(PORT, HOST, () => {
   const urls = publicUrls(PORT);
   console.log("");
-  console.log("KONAMI entry queue bridge is running.");
+  console.log("Entry queue server is running.");
   console.log(`Admin token: ${tokens.adminToken}`);
   console.log(`Scan token:  ${tokens.scanToken}`);
   console.log("");
   console.log("Counter URLs:");
   urls.forEach((url) => {
-    console.log(`  ${counterUrl(url, "E26-063505")}`);
+    console.log(`  ${counterUrl(url)}`);
   });
   console.log("");
   console.log("Phone scanner URLs:");
   urls.forEach((url) => {
-    console.log(`  ${scannerUrl(url, "E26-063505")}`);
+    console.log(`  ${scannerUrl(url)}`);
   });
   console.log("");
   console.log(`Queue file: ${STORE_FILE}`);
@@ -156,47 +150,46 @@ if (HTTPS_PORT && fs.existsSync(TLS_KEY) && fs.existsSync(TLS_CERT)) {
     cert: fs.readFileSync(TLS_CERT)
   }, requestHandler).listen(HTTPS_PORT, HOST, () => {
     console.log(`HTTPS scanner server: https://127.0.0.1:${HTTPS_PORT}`);
-    console.log(`Phone HTTPS scanner path: /scanner?tournament=E26-063505&scanToken=${tokens.scanToken}`);
+    console.log(`Phone HTTPS scanner path: /scanner?scanToken=${tokens.scanToken}`);
     console.log("");
   });
 } else if (HTTPS_PORT) {
   console.log(`HTTPS requested, but certificate files were not found: ${TLS_KEY} and ${TLS_CERT}`);
 }
 
-function addScan(tournamentNo, cardGameId, scannerName) {
-  const tournament = getTournament(tournamentNo);
-  const existing = tournament.entries.find((entry) => {
-    return entry.cardGameId === cardGameId && entry.status !== "void";
+function addScan(id, scannerName) {
+  const existing = store.entries.find((entry) => {
+    return entry.id === id && entry.status !== "void";
   });
 
   if (existing) {
     existing.lastSeenAt = new Date().toISOString();
     existing.lastScannerName = scannerName;
+    existing.updatedAt = existing.lastSeenAt;
     return { ...existing, duplicate: true };
   }
 
   const now = new Date().toISOString();
   const entry = {
-    queueNo: formatQueueNo(tournament.nextNumber),
-    cardGameId,
+    queueNo: formatQueueNo(store.nextNumber),
+    id,
     status: "waiting",
     scannerName,
     scannedAt: now,
     updatedAt: now
   };
 
-  tournament.nextNumber += 1;
-  tournament.entries.push(entry);
+  store.nextNumber += 1;
+  store.entries.push(entry);
   return entry;
 }
 
-function updateQueueEntry(tournamentNo, queueNo, body) {
-  const tournament = getTournament(tournamentNo);
-  const entry = tournament.entries.find((item) => item.queueNo === queueNo);
+function updateQueueEntry(queueNo, body) {
+  const entry = store.entries.find((item) => item.queueNo === queueNo);
   if (!entry) return null;
 
   const status = String(body.status || "").trim();
-  const allowedStatuses = new Set(["waiting", "called", "paid_submitted", "void"]);
+  const allowedStatuses = new Set(["waiting", "called", "done", "void"]);
 
   if (allowedStatuses.has(status)) {
     entry.status = status;
@@ -210,39 +203,65 @@ function updateQueueEntry(tournamentNo, queueNo, body) {
   entry.updatedAt = now;
 
   if (status === "called" && !entry.calledAt) entry.calledAt = now;
-  if (status === "paid_submitted" && !entry.paidSubmittedAt) entry.paidSubmittedAt = now;
+  if (status === "done" && !entry.doneAt) entry.doneAt = now;
   if (status === "void" && !entry.voidedAt) entry.voidedAt = now;
 
   return entry;
 }
 
-function getTournament(tournamentNo) {
-  if (!store.tournaments[tournamentNo]) {
-    store.tournaments[tournamentNo] = {
-      nextNumber: 1,
-      entries: []
-    };
-  }
-
-  return store.tournaments[tournamentNo];
-}
-
 function loadStore() {
   if (!fs.existsSync(STORE_FILE)) {
-    return { version: 1, tournaments: {} };
+    return { version: 2, nextNumber: 1, entries: [] };
   }
 
   try {
     const parsed = JSON.parse(fs.readFileSync(STORE_FILE, "utf8"));
-    return {
-      version: 1,
-      tournaments: parsed && parsed.tournaments ? parsed.tournaments : {}
-    };
+    return normalizeStore(parsed);
   } catch (error) {
     const backup = `${STORE_FILE}.broken-${Date.now()}`;
     fs.copyFileSync(STORE_FILE, backup);
-    return { version: 1, tournaments: {} };
+    return { version: 2, nextNumber: 1, entries: [] };
   }
+}
+
+function normalizeStore(parsed) {
+  if (parsed && Array.isArray(parsed.entries)) {
+    const entries = parsed.entries.map(normalizeEntry).filter(Boolean);
+    return {
+      version: 2,
+      nextNumber: Math.max(Number(parsed.nextNumber || 1), nextNumberAfter(entries)),
+      entries
+    };
+  }
+
+  return { version: 2, nextNumber: 1, entries: [] };
+}
+
+function normalizeEntry(entry) {
+  if (!entry) return null;
+
+  const queueNo = normalizeQueueNo(entry.queueNo);
+  const id = normalizeId(entry.id);
+  if (!queueNo || !/^\d{10}$/.test(id)) return null;
+
+  const status = String(entry.status || "waiting");
+  return {
+    queueNo,
+    id,
+    status: ["waiting", "called", "done", "void"].includes(status) ? status : "waiting",
+    scannerName: cleanText(entry.scannerName || entry.source || "", 40),
+    scannedAt: entry.scannedAt || entry.createdAt || "",
+    calledAt: entry.calledAt || "",
+    doneAt: entry.doneAt || "",
+    voidedAt: entry.voidedAt || "",
+    updatedAt: entry.updatedAt || entry.scannedAt || entry.createdAt || ""
+  };
+}
+
+function nextNumberAfter(entries) {
+  return entries.reduce((max, entry) => {
+    return Math.max(max, Number(entry.queueNo || 0) + 1);
+  }, 1);
 }
 
 function saveStore() {
@@ -379,12 +398,12 @@ function ensureDir(dir) {
   }
 }
 
-function counterUrl(baseUrl, tournamentNo) {
-  return `${baseUrl}/counter?tournament=${encodeURIComponent(tournamentNo)}&adminToken=${encodeURIComponent(tokens.adminToken)}`;
+function counterUrl(baseUrl) {
+  return `${baseUrl}/counter?adminToken=${encodeURIComponent(tokens.adminToken)}`;
 }
 
-function scannerUrl(baseUrl, tournamentNo) {
-  return `${baseUrl}/scanner?tournament=${encodeURIComponent(tournamentNo)}&scanToken=${encodeURIComponent(tokens.scanToken)}`;
+function scannerUrl(baseUrl) {
+  return `${baseUrl}/scanner?scanToken=${encodeURIComponent(tokens.scanToken)}`;
 }
 
 function publicUrls(port) {

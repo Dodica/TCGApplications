@@ -262,7 +262,7 @@
       background: #fff3cd;
     }
 
-    .badge.paid_submitted {
+    .badge.done {
       color: #084298;
       background: #cfe2ff;
     }
@@ -284,7 +284,7 @@
     <header>
       <div>
         <h1>Entry Queue Counter</h1>
-        <p id="tournament-label">Tournament</p>
+        <p>Type a queue number to reveal the ID</p>
       </div>
       <button id="export-csv" type="button">Export CSV</button>
     </header>
@@ -298,10 +298,6 @@
         <div class="content">
           <div class="row">
             <label>
-              Tournament
-              <input id="tournament-no" autocomplete="off" placeholder="E26-063505">
-            </label>
-            <label>
               Admin token
               <input id="admin-token" type="password" autocomplete="off">
             </label>
@@ -313,14 +309,14 @@
           </label>
 
           <div class="id-card" id="id-card" hidden>
-            <span>Card Game ID</span>
+            <span>ID</span>
             <strong id="card-game-id"></strong>
           </div>
 
           <div class="row">
             <button id="lookup" type="button">Lookup</button>
             <button id="copy-id" class="primary" type="button">Copy ID</button>
-            <button id="paid-submit" class="primary" type="button">Paid / Submitted</button>
+            <button id="done" class="primary" type="button">Done</button>
           </div>
 
           <div class="row">
@@ -341,7 +337,7 @@
           <div class="stats">
             <div class="stat"><span>Waiting</span><strong id="waiting-count">0</strong></div>
             <div class="stat"><span>Called</span><strong id="called-count">0</strong></div>
-            <div class="stat"><span>Paid</span><strong id="paid-count">0</strong></div>
+            <div class="stat"><span>Done</span><strong id="done-count">0</strong></div>
           </div>
         </div>
 
@@ -369,13 +365,11 @@
 
       var params = new URLSearchParams(location.search);
       var state = {
-        tournamentNo: params.get("tournament") || localStorage.getItem("entry-queue-counter-tournament") || "",
         adminToken: params.get("adminToken") || localStorage.getItem("entry-queue-counter-admin-token") || "",
         entries: [],
         selected: null
       };
 
-      var tournamentInput = document.getElementById("tournament-no");
       var tokenInput = document.getElementById("admin-token");
       var queueInput = document.getElementById("queue-no");
       var statusEl = document.getElementById("status");
@@ -383,16 +377,7 @@
       var idEl = document.getElementById("card-game-id");
       var queueBody = document.getElementById("queue-body");
 
-      tournamentInput.value = state.tournamentNo;
       tokenInput.value = state.adminToken;
-      updateTournamentLabel();
-
-      tournamentInput.addEventListener("change", function () {
-        state.tournamentNo = tournamentInput.value.trim();
-        localStorage.setItem("entry-queue-counter-tournament", state.tournamentNo);
-        updateTournamentLabel();
-        poll();
-      });
 
       tokenInput.addEventListener("change", function () {
         state.adminToken = tokenInput.value.trim();
@@ -417,8 +402,8 @@
       document.getElementById("called").addEventListener("click", function () {
         updateSelectedStatus("called");
       });
-      document.getElementById("paid-submit").addEventListener("click", function () {
-        updateSelectedStatus("paid_submitted");
+      document.getElementById("done").addEventListener("click", function () {
+        updateSelectedStatus("done");
       });
       document.getElementById("void").addEventListener("click", function () {
         updateSelectedStatus("void");
@@ -450,11 +435,11 @@
         }
 
         state.selected = entry;
-        idEl.textContent = entry.cardGameId;
+        idEl.textContent = entry.id;
         idCard.hidden = false;
-        setStatus("Queue " + entry.queueNo + " found. Copy the ID into KONAMI.", "success");
+        setStatus("Queue " + entry.queueNo + " found.", "success");
         updateStatus(entry.queueNo, "called", true);
-        copyText(entry.cardGameId, true);
+        copyText(entry.id, true);
       }
 
       function copySelectedId() {
@@ -463,7 +448,7 @@
           return;
         }
 
-        copyText(state.selected.cardGameId, false);
+        copyText(state.selected.id, false);
       }
 
       function updateSelectedStatus(status) {
@@ -478,7 +463,7 @@
       function updateStatus(queueNo, status, quiet) {
         if (!ready()) return;
 
-        fetch("/api/tournaments/" + encodeURIComponent(state.tournamentNo) + "/queue/" + encodeURIComponent(queueNo), {
+        fetch("/api/queue/" + encodeURIComponent(queueNo), {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
@@ -500,7 +485,7 @@
       function poll() {
         if (!ready(true)) return;
 
-        fetch("/api/tournaments/" + encodeURIComponent(state.tournamentNo) + "/queue", {
+        fetch("/api/queue", {
           headers: { "X-Admin-Token": state.adminToken }
         }).then(function (response) {
           return response.json().then(function (payload) {
@@ -516,17 +501,17 @@
       function renderQueue() {
         var waiting = 0;
         var called = 0;
-        var paid = 0;
+        var done = 0;
 
         state.entries.forEach(function (entry) {
           if (entry.status === "waiting") waiting += 1;
           if (entry.status === "called") called += 1;
-          if (entry.status === "paid_submitted") paid += 1;
+          if (entry.status === "done") done += 1;
         });
 
         document.getElementById("waiting-count").textContent = String(waiting);
         document.getElementById("called-count").textContent = String(called);
-        document.getElementById("paid-count").textContent = String(paid);
+        document.getElementById("done-count").textContent = String(done);
 
         var visible = state.entries.slice().sort(function (a, b) {
           return Number(a.queueNo) - Number(b.queueNo);
@@ -536,7 +521,7 @@
           var time = entry.scannedAt ? new Date(entry.scannedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
           return "<tr data-queue-no=\"" + escapeHtml(entry.queueNo) + "\">" +
             "<td>" + escapeHtml(entry.queueNo) + "</td>" +
-            "<td>" + escapeHtml(maskId(entry.cardGameId)) + "</td>" +
+            "<td>" + escapeHtml(maskId(entry.id)) + "</td>" +
             "<td><span class=\"badge " + escapeHtml(entry.status) + "\">" + escapeHtml(label(entry.status)) + "</span></td>" +
             "<td>" + escapeHtml(entry.scannerName || "") + "</td>" +
             "<td>" + escapeHtml(time) + "</td>" +
@@ -545,16 +530,16 @@
       }
 
       function exportCsv() {
-        var rows = [["queueNo", "cardGameId", "status", "scannerName", "scannedAt", "calledAt", "paidSubmittedAt", "voidedAt"]];
+        var rows = [["queueNo", "id", "status", "scannerName", "scannedAt", "calledAt", "doneAt", "voidedAt"]];
         state.entries.forEach(function (entry) {
           rows.push([
             entry.queueNo,
-            entry.cardGameId,
+            entry.id,
             entry.status,
             entry.scannerName || "",
             entry.scannedAt || "",
             entry.calledAt || "",
-            entry.paidSubmittedAt || "",
+            entry.doneAt || "",
             entry.voidedAt || ""
           ]);
         });
@@ -565,7 +550,7 @@
         var blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
         var link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
-        link.download = "entry-queue-" + state.tournamentNo + ".csv";
+        link.download = "entry-queue.csv";
         document.body.appendChild(link);
         link.click();
         URL.revokeObjectURL(link.href);
@@ -585,11 +570,6 @@
       }
 
       function ready(silent) {
-        if (!state.tournamentNo) {
-          if (!silent) setStatus("Enter tournament number.", "danger");
-          return false;
-        }
-
         if (!state.adminToken) {
           if (!silent) setStatus("Enter admin token.", "danger");
           return false;
@@ -601,7 +581,7 @@
       function copyText(text, quiet) {
         if (navigator.clipboard && window.isSecureContext) {
           navigator.clipboard.writeText(text).then(function () {
-            if (!quiet) setStatus("Card Game ID copied.", "success");
+            if (!quiet) setStatus("ID copied.", "success");
           }).catch(function () {
             fallbackCopy(text, quiet);
           });
@@ -621,15 +601,11 @@
         textarea.select();
         try {
           document.execCommand("copy");
-          if (!quiet) setStatus("Card Game ID copied.", "success");
+          if (!quiet) setStatus("ID copied.", "success");
         } catch (error) {
           if (!quiet) setStatus("Copy failed. Select the ID manually.", "warning");
         }
         textarea.remove();
-      }
-
-      function updateTournamentLabel() {
-        document.getElementById("tournament-label").textContent = state.tournamentNo ? "Tournament " + state.tournamentNo : "No tournament selected";
       }
 
       function maskId(id) {
@@ -651,7 +627,6 @@
       }
 
       function label(status) {
-        if (status === "paid_submitted") return "paid";
         return status || "unknown";
       }
 

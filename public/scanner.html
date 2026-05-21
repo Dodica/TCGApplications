@@ -206,7 +206,7 @@
   <div class="app">
     <header>
       <h1>Entry Queue Scanner</h1>
-      <p id="tournament-label">Tournament</p>
+      <p>Scan IDs into the counter queue</p>
     </header>
 
     <main>
@@ -229,7 +229,7 @@
           </div>
 
           <label>
-            Manual Card Game ID
+            Manual ID
             <input id="manual-id" inputmode="numeric" pattern="[0-9]*" maxlength="10" autocomplete="off" placeholder="10 digits">
           </label>
 
@@ -258,7 +258,6 @@
       "use strict";
 
       var params = new URLSearchParams(location.search);
-      var tournamentNo = params.get("tournament") || "";
       var scanToken = params.get("scanToken") || "";
       var detector = null;
       var stream = null;
@@ -278,7 +277,6 @@
       var manualId = document.getElementById("manual-id");
       var scannerName = document.getElementById("scanner-name");
 
-      document.getElementById("tournament-label").textContent = tournamentNo ? "Tournament " + tournamentNo : "Missing tournament number";
       scannerName.value = localStorage.getItem("entry-queue-scanner-name") || "";
 
       scannerName.addEventListener("input", function () {
@@ -307,8 +305,8 @@
       document.getElementById("start-camera").addEventListener("click", startCamera);
       document.getElementById("stop-camera").addEventListener("click", stopCamera);
 
-      if (!tournamentNo || !scanToken) {
-        setStatus("This scanner URL is missing tournament or scan token.", "danger");
+      if (!scanToken) {
+        setStatus("This scanner URL is missing the scan token.", "danger");
       } else if (!window.isSecureContext) {
         setStatus("Live camera is blocked on HTTP. Use HTTPS or mark this local URL as secure.", "danger");
       }
@@ -359,7 +357,7 @@
 
         quaggaHandler = function (result) {
           var code = result && result.codeResult && result.codeResult.code;
-          var id = readCardGameId(code);
+          var id = readId(code);
           if (id) {
             submitScan(id, "camera");
           }
@@ -449,7 +447,7 @@
             if (id) {
               await submitScan(id, "camera");
             } else {
-              setStatus("Ignored barcode. Card Game ID must be exactly 10 digits.", "danger");
+              setStatus("Ignored barcode. ID must be exactly 10 digits.", "danger");
             }
           }
         } catch (error) {
@@ -462,32 +460,32 @@
       }
 
       async function submitScan(rawId, source) {
-        var cardGameId = readCardGameId(rawId);
+        var id = readId(rawId);
         var now = Date.now();
 
-        if (!tournamentNo || !scanToken) {
-          setStatus("Missing tournament or scan token.", "danger");
+        if (!scanToken) {
+          setStatus("Missing scan token.", "danger");
           return;
         }
 
-        if (!/^\d{10}$/.test(cardGameId)) {
-          setStatus("Card Game ID must be 10 digits.", "danger");
+        if (!/^\d{10}$/.test(id)) {
+          setStatus("ID must be exactly 10 digits.", "danger");
           return;
         }
 
-        if (cardGameId === lastSubmittedId && now - lastSubmittedAt < 8000) {
+        if (id === lastSubmittedId && now - lastSubmittedAt < 8000) {
           return;
         }
 
-        lastSubmittedId = cardGameId;
+        lastSubmittedId = id;
         lastSubmittedAt = now;
 
         try {
-          var response = await fetch("/api/tournaments/" + encodeURIComponent(tournamentNo) + "/scans", {
+          var response = await fetch("/api/scans", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              cardGameId: cardGameId,
+              id: id,
               scannerName: scannerName.value.trim() || "phone",
               scanToken: scanToken,
               source: source
@@ -542,7 +540,7 @@
           .replace(/\D/g, "");
       }
 
-      function readCardGameId(value) {
+      function readId(value) {
         var digits = normalizeId(value);
         return /^\d{10}$/.test(digits) ? digits : "";
       }
@@ -551,7 +549,7 @@
         if (!results || !results.length) return "";
 
         for (var i = 0; i < results.length; i += 1) {
-          var id = readCardGameId(results[i].rawValue);
+          var id = readId(results[i].rawValue);
           if (id) return id;
         }
 
