@@ -110,8 +110,13 @@ const requestHandler = async (req, res) => {
         return;
       }
 
+      if (result.error) {
+        sendJson(res, 400, { ok: false, error: result.error });
+        return;
+      }
+
       saveStore();
-      sendJson(res, 200, { ok: true, entry: result });
+      sendJson(res, 200, { ok: true, entry: result.entry });
       return;
     }
 
@@ -189,9 +194,13 @@ function updateQueueEntry(queueNo, body) {
   if (!entry) return null;
 
   const status = String(body.status || "").trim();
-  const allowedStatuses = new Set(["waiting", "called", "done", "void"]);
+  const allowedStatuses = new Set(["waiting", "done", "void"]);
 
-  if (allowedStatuses.has(status)) {
+  if (status && !allowedStatuses.has(status)) {
+    return { error: "Status must be waiting, done, or void." };
+  }
+
+  if (status) {
     entry.status = status;
   }
 
@@ -202,11 +211,10 @@ function updateQueueEntry(queueNo, body) {
   const now = new Date().toISOString();
   entry.updatedAt = now;
 
-  if (status === "called" && !entry.calledAt) entry.calledAt = now;
   if (status === "done" && !entry.doneAt) entry.doneAt = now;
   if (status === "void" && !entry.voidedAt) entry.voidedAt = now;
 
-  return entry;
+  return { entry };
 }
 
 function loadStore() {
@@ -248,10 +256,9 @@ function normalizeEntry(entry) {
   return {
     queueNo,
     id,
-    status: ["waiting", "called", "done", "void"].includes(status) ? status : "waiting",
+    status: ["waiting", "done", "void"].includes(status) ? status : "waiting",
     scannerName: cleanText(entry.scannerName || entry.source || "", 40),
     scannedAt: entry.scannedAt || entry.createdAt || "",
-    calledAt: entry.calledAt || "",
     doneAt: entry.doneAt || "",
     voidedAt: entry.voidedAt || "",
     updatedAt: entry.updatedAt || entry.scannedAt || entry.createdAt || ""
@@ -307,7 +314,6 @@ function hasAdminAccess(req, url) {
 
 function normalizeId(value) {
   return String(value || "")
-    .replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 65248))
     .replace(/\D/g, "");
 }
 

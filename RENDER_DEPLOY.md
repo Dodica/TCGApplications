@@ -14,7 +14,7 @@ Set these in Render before using the queue:
 
 - `SCAN_TOKEN`: any long random value for phone scanner URLs
 - `ADMIN_TOKEN`: any long random value for the counter/admin URL
-- `PUBLIC_BASE_URL`: your Render service URL, for example `https://your-service.onrender.com`
+- `PUBLIC_BASE_URL`: `https://tcgapplications.onrender.com`
 
 Optional but recommended if the queue must survive restarts:
 
@@ -24,5 +24,5 @@ Without a persistent disk or database, Render can lose `queue-data/queue.json` w
 
 ## URLs
 
-- Scanner: `https://your-service.onrender.com/scanner?scanToken=SCAN_TOKEN`
-- Counter: `https://your-service.onrender.com/counter?adminToken=ADMIN_TOKEN`
+- Scanner: `https://tcgapplications.onrender.com/scanner?scanToken=SCAN_TOKEN`
+- Counter: `https://tcgapplications.onrender.com/counter?adminToken=ADMIN_TOKEN`

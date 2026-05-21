@@ -257,11 +257,6 @@
       background: #d1e7dd;
     }
 
-    .badge.called {
-      color: #664d03;
-      background: #fff3cd;
-    }
-
     .badge.done {
       color: #084298;
       background: #cfe2ff;
@@ -296,16 +291,9 @@
         </header>
 
         <div class="content">
-          <div class="row">
-            <label>
-              Admin token
-              <input id="admin-token" type="password" autocomplete="off">
-            </label>
-          </div>
-
           <label>
             Queue number
-            <input id="queue-no" class="queue-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" autofocus placeholder="027">
+            <input id="queue-no" class="queue-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" autofocus>
           </label>
 
           <div class="id-card" id="id-card" hidden>
@@ -315,12 +303,7 @@
 
           <div class="row">
             <button id="lookup" type="button">Lookup</button>
-            <button id="copy-id" class="primary" type="button">Copy ID</button>
             <button id="done" class="primary" type="button">Done</button>
-          </div>
-
-          <div class="row">
-            <button id="called" type="button">Mark Called</button>
             <button id="void" class="danger" type="button">Void</button>
           </div>
 
@@ -336,8 +319,8 @@
         <div class="content">
           <div class="stats">
             <div class="stat"><span>Waiting</span><strong id="waiting-count">0</strong></div>
-            <div class="stat"><span>Called</span><strong id="called-count">0</strong></div>
             <div class="stat"><span>Done</span><strong id="done-count">0</strong></div>
+            <div class="stat"><span>Void</span><strong id="void-count">0</strong></div>
           </div>
         </div>
 
@@ -370,20 +353,15 @@
         selected: null
       };
 
-      var tokenInput = document.getElementById("admin-token");
       var queueInput = document.getElementById("queue-no");
       var statusEl = document.getElementById("status");
       var idCard = document.getElementById("id-card");
       var idEl = document.getElementById("card-game-id");
       var queueBody = document.getElementById("queue-body");
 
-      tokenInput.value = state.adminToken;
-
-      tokenInput.addEventListener("change", function () {
-        state.adminToken = tokenInput.value.trim();
+      if (params.get("adminToken")) {
         localStorage.setItem("entry-queue-counter-admin-token", state.adminToken);
-        poll();
-      });
+      }
 
       queueInput.addEventListener("input", function () {
         var normalized = normalizeId(queueInput.value);
@@ -398,10 +376,6 @@
       });
 
       document.getElementById("lookup").addEventListener("click", lookup);
-      document.getElementById("copy-id").addEventListener("click", copySelectedId);
-      document.getElementById("called").addEventListener("click", function () {
-        updateSelectedStatus("called");
-      });
       document.getElementById("done").addEventListener("click", function () {
         updateSelectedStatus("done");
       });
@@ -437,18 +411,8 @@
         state.selected = entry;
         idEl.textContent = entry.id;
         idCard.hidden = false;
+        queueInput.value = "";
         setStatus("Queue " + entry.queueNo + " found.", "success");
-        updateStatus(entry.queueNo, "called", true);
-        copyText(entry.id, true);
-      }
-
-      function copySelectedId() {
-        if (!state.selected) {
-          setStatus("Lookup a queue number first.", "danger");
-          return;
-        }
-
-        copyText(state.selected.id, false);
       }
 
       function updateSelectedStatus(status) {
@@ -500,18 +464,18 @@
 
       function renderQueue() {
         var waiting = 0;
-        var called = 0;
         var done = 0;
+        var voided = 0;
 
         state.entries.forEach(function (entry) {
           if (entry.status === "waiting") waiting += 1;
-          if (entry.status === "called") called += 1;
           if (entry.status === "done") done += 1;
+          if (entry.status === "void") voided += 1;
         });
 
         document.getElementById("waiting-count").textContent = String(waiting);
-        document.getElementById("called-count").textContent = String(called);
         document.getElementById("done-count").textContent = String(done);
+        document.getElementById("void-count").textContent = String(voided);
 
         var visible = state.entries.slice().sort(function (a, b) {
           return Number(a.queueNo) - Number(b.queueNo);
@@ -521,7 +485,7 @@
           var time = entry.scannedAt ? new Date(entry.scannedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
           return "<tr data-queue-no=\"" + escapeHtml(entry.queueNo) + "\">" +
             "<td>" + escapeHtml(entry.queueNo) + "</td>" +
-            "<td>" + escapeHtml(maskId(entry.id)) + "</td>" +
+            "<td>" + escapeHtml(entry.id) + "</td>" +
             "<td><span class=\"badge " + escapeHtml(entry.status) + "\">" + escapeHtml(label(entry.status)) + "</span></td>" +
             "<td>" + escapeHtml(entry.scannerName || "") + "</td>" +
             "<td>" + escapeHtml(time) + "</td>" +
@@ -530,7 +494,7 @@
       }
 
       function exportCsv() {
-        var rows = [["queueNo", "id", "status", "scannerName", "scannedAt", "calledAt", "doneAt", "voidedAt"]];
+        var rows = [["queueNo", "id", "status", "scannerName", "scannedAt", "doneAt", "voidedAt"]];
         state.entries.forEach(function (entry) {
           rows.push([
             entry.queueNo,
@@ -538,7 +502,6 @@
             entry.status,
             entry.scannerName || "",
             entry.scannedAt || "",
-            entry.calledAt || "",
             entry.doneAt || "",
             entry.voidedAt || ""
           ]);
@@ -571,52 +534,15 @@
 
       function ready(silent) {
         if (!state.adminToken) {
-          if (!silent) setStatus("Enter admin token.", "danger");
+          if (!silent) setStatus("Open the counter with its adminToken link.", "danger");
           return false;
         }
 
         return true;
       }
 
-      function copyText(text, quiet) {
-        if (navigator.clipboard && window.isSecureContext) {
-          navigator.clipboard.writeText(text).then(function () {
-            if (!quiet) setStatus("ID copied.", "success");
-          }).catch(function () {
-            fallbackCopy(text, quiet);
-          });
-          return;
-        }
-
-        fallbackCopy(text, quiet);
-      }
-
-      function fallbackCopy(text, quiet) {
-        var textarea = document.createElement("textarea");
-        textarea.value = text;
-        textarea.style.position = "fixed";
-        textarea.style.left = "-9999px";
-        document.body.appendChild(textarea);
-        textarea.focus();
-        textarea.select();
-        try {
-          document.execCommand("copy");
-          if (!quiet) setStatus("ID copied.", "success");
-        } catch (error) {
-          if (!quiet) setStatus("Copy failed. Select the ID manually.", "warning");
-        }
-        textarea.remove();
-      }
-
-      function maskId(id) {
-        return "*******" + String(id || "").slice(-3);
-      }
-
       function normalizeId(value) {
         return String(value || "")
-          .replace(/[０-９]/g, function (digit) {
-            return String.fromCharCode(digit.charCodeAt(0) - 65248);
-          })
           .replace(/\D/g, "");
       }
 

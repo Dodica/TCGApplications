@@ -173,6 +173,56 @@
       font-size: 15px;
     }
 
+    .success-modal {
+      position: fixed;
+      z-index: 50;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: rgba(9, 16, 27, .76);
+    }
+
+    .success-modal[hidden] {
+      display: none;
+    }
+
+    .success-card {
+      width: min(420px, 100%);
+      border: 1px solid #badbcc;
+      border-radius: 8px;
+      padding: 20px;
+      background: #f0f8f3;
+      color: #0f5132;
+      text-align: center;
+      box-shadow: 0 18px 42px rgba(0, 0, 0, .28);
+    }
+
+    .success-card span {
+      display: block;
+      font-size: 16px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .success-card strong {
+      display: block;
+      margin: 8px 0;
+      font-size: clamp(86px, 30vw, 132px);
+      line-height: .95;
+      letter-spacing: 0;
+    }
+
+    .success-card p {
+      margin: 0 0 16px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .success-card button {
+      width: 100%;
+    }
+
     .status {
       min-height: 42px;
       border: 1px solid #d5dce5;
@@ -237,7 +287,7 @@
 
           <div class="queue-number" id="queue-card" hidden>
             <div>
-              <span>Give player this number</span>
+              <span>Give admin this number</span>
               <strong id="queue-no">000</strong>
             </div>
           </div>
@@ -250,6 +300,15 @@
     <footer>
       Phone scanners create queue numbers only. Accepted IDs are exactly 10 digits.
     </footer>
+  </div>
+
+  <div id="success-modal" class="success-modal" role="dialog" aria-modal="true" aria-labelledby="success-queue-label" hidden>
+    <div class="success-card">
+      <span id="success-queue-label">Queue number</span>
+      <strong id="success-queue-no">000</strong>
+      <p>Give this number to the admin.</p>
+      <button id="success-close" class="primary" type="button">Done</button>
+    </div>
   </div>
 
   <script src="/public/quagga.min.js"></script>
@@ -267,6 +326,7 @@
       var quaggaHandler = null;
       var lastSubmittedId = "";
       var lastSubmittedAt = 0;
+      var confirmationOpen = false;
 
       var liveCameraPanel = document.getElementById("live-camera-panel");
       var video = document.getElementById("video");
@@ -274,6 +334,8 @@
       var statusEl = document.getElementById("status");
       var queueCard = document.getElementById("queue-card");
       var queueNoEl = document.getElementById("queue-no");
+      var successModal = document.getElementById("success-modal");
+      var successQueueNo = document.getElementById("success-queue-no");
       var manualId = document.getElementById("manual-id");
       var scannerName = document.getElementById("scanner-name");
 
@@ -304,6 +366,7 @@
 
       document.getElementById("start-camera").addEventListener("click", startCamera);
       document.getElementById("stop-camera").addEventListener("click", stopCamera);
+      document.getElementById("success-close").addEventListener("click", closeSuccessModal);
 
       if (!scanToken) {
         setStatus("This scanner URL is missing the scan token.", "danger");
@@ -356,6 +419,7 @@
         quaggaViewport.innerHTML = "";
 
         quaggaHandler = function (result) {
+          if (confirmationOpen) return;
           var code = result && result.codeResult && result.codeResult.code;
           var id = readId(code);
           if (id) {
@@ -440,6 +504,11 @@
           return;
         }
 
+        if (confirmationOpen) {
+          frame = requestAnimationFrame(scanLoop);
+          return;
+        }
+
         try {
           var results = await detector.detect(video);
           if (results && results.length) {
@@ -505,10 +574,20 @@
       }
 
       function showQueue(entry) {
+        confirmationOpen = true;
         queueNoEl.textContent = entry.queueNo;
+        successQueueNo.textContent = entry.queueNo;
         queueCard.hidden = false;
+        successModal.hidden = false;
         setStatus(entry.duplicate ? "Already scanned. Use the same queue number." : "Queue number created.", "success");
         notify();
+      }
+
+      function closeSuccessModal() {
+        confirmationOpen = false;
+        lastSubmittedAt = Date.now();
+        successModal.hidden = true;
+        if (!scanning) manualId.focus();
       }
 
       function notify() {
@@ -534,9 +613,6 @@
 
       function normalizeId(value) {
         return String(value || "")
-          .replace(/[０-９]/g, function (digit) {
-            return String.fromCharCode(digit.charCodeAt(0) - 65248);
-          })
           .replace(/\D/g, "");
       }
 
