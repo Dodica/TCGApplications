@@ -163,9 +163,7 @@ if (HTTPS_PORT && fs.existsSync(TLS_KEY) && fs.existsSync(TLS_CERT)) {
 }
 
 function addScan(id, scannerName) {
-  const existing = store.entries.find((entry) => {
-    return entry.id === id && entry.status !== "void";
-  });
+  const existing = store.entries.find((entry) => entry.id === id);
 
   if (existing) {
     existing.lastSeenAt = new Date().toISOString();
@@ -194,10 +192,10 @@ function updateQueueEntry(queueNo, body) {
   if (!entry) return null;
 
   const status = String(body.status || "").trim();
-  const allowedStatuses = new Set(["waiting", "done", "void"]);
+  const allowedStatuses = new Set(["waiting", "done"]);
 
   if (status && !allowedStatuses.has(status)) {
-    return { error: "Status must be waiting, done, or void." };
+    return { error: "Status must be waiting or done." };
   }
 
   if (status) {
@@ -212,7 +210,7 @@ function updateQueueEntry(queueNo, body) {
   entry.updatedAt = now;
 
   if (status === "done" && !entry.doneAt) entry.doneAt = now;
-  if (status === "void" && !entry.voidedAt) entry.voidedAt = now;
+  if (status === "waiting") entry.doneAt = "";
 
   return { entry };
 }
@@ -256,11 +254,10 @@ function normalizeEntry(entry) {
   return {
     queueNo,
     id,
-    status: ["waiting", "done", "void"].includes(status) ? status : "waiting",
+    status: ["waiting", "done"].includes(status) ? status : "waiting",
     scannerName: cleanText(entry.scannerName || entry.source || "", 40),
     scannedAt: entry.scannedAt || entry.createdAt || "",
     doneAt: entry.doneAt || "",
-    voidedAt: entry.voidedAt || "",
     updatedAt: entry.updatedAt || entry.scannedAt || entry.createdAt || ""
   };
 }

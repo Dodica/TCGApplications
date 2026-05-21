@@ -191,7 +191,7 @@
 
     .stats {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(2, 1fr);
       gap: 8px;
     }
 
@@ -262,11 +262,6 @@
       background: #cfe2ff;
     }
 
-    .badge.void {
-      color: #842029;
-      background: #f8d7da;
-    }
-
     @media (max-width: 820px) {
       main {
         grid-template-columns: 1fr;
@@ -304,7 +299,7 @@
           <div class="row">
             <button id="lookup" type="button">Lookup</button>
             <button id="done" class="primary" type="button">Done</button>
-            <button id="void" class="danger" type="button">Void</button>
+            <button id="waiting" type="button">Back to Waiting</button>
           </div>
 
           <div id="status" class="status">Ready.</div>
@@ -320,7 +315,6 @@
           <div class="stats">
             <div class="stat"><span>Waiting</span><strong id="waiting-count">0</strong></div>
             <div class="stat"><span>Done</span><strong id="done-count">0</strong></div>
-            <div class="stat"><span>Void</span><strong id="void-count">0</strong></div>
           </div>
         </div>
 
@@ -379,8 +373,8 @@
       document.getElementById("done").addEventListener("click", function () {
         updateSelectedStatus("done");
       });
-      document.getElementById("void").addEventListener("click", function () {
-        updateSelectedStatus("void");
+      document.getElementById("waiting").addEventListener("click", function () {
+        updateSelectedStatus("waiting");
       });
       document.getElementById("export-csv").addEventListener("click", exportCsv);
 
@@ -465,17 +459,14 @@
       function renderQueue() {
         var waiting = 0;
         var done = 0;
-        var voided = 0;
 
         state.entries.forEach(function (entry) {
           if (entry.status === "waiting") waiting += 1;
           if (entry.status === "done") done += 1;
-          if (entry.status === "void") voided += 1;
         });
 
         document.getElementById("waiting-count").textContent = String(waiting);
         document.getElementById("done-count").textContent = String(done);
-        document.getElementById("void-count").textContent = String(voided);
 
         var visible = state.entries.slice().sort(function (a, b) {
           return Number(a.queueNo) - Number(b.queueNo);
@@ -494,7 +485,7 @@
       }
 
       function exportCsv() {
-        var rows = [["queueNo", "id", "status", "scannerName", "scannedAt", "doneAt", "voidedAt"]];
+        var rows = [["queueNo", "id", "status", "scannerName", "scannedAt", "doneAt"]];
         state.entries.forEach(function (entry) {
           rows.push([
             entry.queueNo,
@@ -502,8 +493,7 @@
             entry.status,
             entry.scannerName || "",
             entry.scannedAt || "",
-            entry.doneAt || "",
-            entry.voidedAt || ""
+            entry.doneAt || ""
           ]);
         });
 
