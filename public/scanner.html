@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Entry Queue Scanner</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: #17202a;
+      background: #eef2f6;
+      font: 16px/1.4 Arial, sans-serif;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    header {
+      padding: 14px 16px;
+      color: #fff;
+      background: #223044;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    header p {
+      margin: 3px 0 0;
+      color: #cbd5e1;
+      font-size: 13px;
+    }
+
+    main {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+      padding: 12px;
+    }
+
+    .panel {
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .camera {
+      position: relative;
+      background: #000;
+    }
+
+    .camera[hidden] {
+      display: none;
+    }
+
+    video {
+      width: 100%;
+      aspect-ratio: 3 / 4;
+      display: block;
+      object-fit: cover;
+      background: #000;
+    }
+
+    video[hidden],
+    .quagga-viewport[hidden] {
+      display: none;
+    }
+
+    .quagga-viewport video,
+    .quagga-viewport canvas {
+      width: 100%;
+      aspect-ratio: 3 / 4;
+      display: block;
+      object-fit: cover;
+      background: #000;
+    }
+
+    .quagga-viewport canvas {
+      position: absolute;
+      inset: 0;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .scan-line {
+      position: absolute;
+      left: 12%;
+      right: 12%;
+      top: 50%;
+      height: 2px;
+      background: #21d07a;
+      box-shadow: 0 0 14px #21d07a;
+    }
+
+    .content {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: #526173;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    input {
+      width: 100%;
+      min-height: 46px;
+      border: 1px solid #aeb9c7;
+      border-radius: 6px;
+      padding: 9px 10px;
+      color: #17202a;
+      background: #fff;
+      font-size: 18px;
+    }
+
+    button {
+      min-height: 46px;
+      border: 1px solid #9aa8b8;
+      border-radius: 6px;
+      padding: 9px 12px;
+      color: #17202a;
+      background: #fff;
+      font-weight: 700;
+      font-size: 16px;
+    }
+
+    button.primary {
+      color: #fff;
+      border-color: #157347;
+      background: #198754;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .queue-number {
+      display: grid;
+      place-items: center;
+      min-height: 132px;
+      padding: 12px;
+      border: 2px solid #badbcc;
+      border-radius: 8px;
+      background: #f0f8f3;
+      text-align: center;
+    }
+
+    .queue-number strong {
+      display: block;
+      color: #0f5132;
+      font-size: clamp(54px, 22vw, 96px);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .queue-number span {
+      color: #0f5132;
+      font-size: 15px;
+    }
+
+    .status {
+      min-height: 42px;
+      border: 1px solid #d5dce5;
+      border-radius: 6px;
+      padding: 9px 10px;
+      background: #fff;
+      color: #526173;
+    }
+
+    .status[data-type="success"] {
+      color: #0f5132;
+      border-color: #badbcc;
+      background: #f0f8f3;
+    }
+
+    .status[data-type="danger"] {
+      color: #842029;
+      border-color: #f5c2c7;
+      background: #fff1f2;
+    }
+
+    footer {
+      padding: 10px 12px;
+      color: #526173;
+      font-size: 12px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Entry Queue Scanner</h1>
+      <p id="tournament-label">Tournament</p>
+    </header>
+
+    <main>
+      <section class="panel camera" id="live-camera-panel" hidden>
+        <video id="video" muted playsinline></video>
+        <div id="quagga-viewport" class="quagga-viewport" hidden></div>
+        <div class="scan-line"></div>
+      </section>
+
+      <section class="panel">
+        <div class="content">
+          <label>
+            Scanner name
+            <input id="scanner-name" autocomplete="name" placeholder="Your name">
+          </label>
+
+          <div class="actions">
+            <button id="start-camera" class="primary" type="button">Start Live Camera</button>
+            <button id="stop-camera" type="button">Stop</button>
+          </div>
+
+          <label>
+            Manual Card Game ID
+            <input id="manual-id" inputmode="numeric" pattern="[0-9]*" maxlength="10" autocomplete="off" placeholder="10 digits">
+          </label>
+
+          <button id="manual-submit" class="primary" type="button">Create Queue Number</button>
+
+          <div class="queue-number" id="queue-card" hidden>
+            <div>
+              <span>Give player this number</span>
+              <strong id="queue-no">000</strong>
+            </div>
+          </div>
+
+          <div id="status" class="status">Ready.</div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      Phone scanners create queue numbers only. Accepted IDs are exactly 10 digits.
+    </footer>
+  </div>
+
+  <script src="/public/quagga.min.js"></script>
+  <script>
+    (function () {
+      "use strict";
+
+      var params = new URLSearchParams(location.search);
+      var tournamentNo = params.get("tournament") || "";
+      var scanToken = params.get("scanToken") || "";
+      var detector = null;
+      var stream = null;
+      var frame = 0;
+      var scanning = false;
+      var quaggaActive = false;
+      var quaggaHandler = null;
+      var lastSubmittedId = "";
+      var lastSubmittedAt = 0;
+
+      var liveCameraPanel = document.getElementById("live-camera-panel");
+      var video = document.getElementById("video");
+      var quaggaViewport = document.getElementById("quagga-viewport");
+      var statusEl = document.getElementById("status");
+      var queueCard = document.getElementById("queue-card");
+      var queueNoEl = document.getElementById("queue-no");
+      var manualId = document.getElementById("manual-id");
+      var scannerName = document.getElementById("scanner-name");
+
+      document.getElementById("tournament-label").textContent = tournamentNo ? "Tournament " + tournamentNo : "Missing tournament number";
+      scannerName.value = localStorage.getItem("entry-queue-scanner-name") || "";
+
+      scannerName.addEventListener("input", function () {
+        localStorage.setItem("entry-queue-scanner-name", scannerName.value.trim());
+      });
+
+      manualId.addEventListener("input", function () {
+        var normalized = normalizeId(manualId.value);
+        if (manualId.value !== normalized) manualId.value = normalized;
+        if (normalized.length === 10) {
+          submitScan(normalized, "manual");
+        }
+      });
+
+      manualId.addEventListener("keydown", function (event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          submitScan(manualId.value, "manual");
+        }
+      });
+
+      document.getElementById("manual-submit").addEventListener("click", function () {
+        submitScan(manualId.value, "manual");
+      });
+
+      document.getElementById("start-camera").addEventListener("click", startCamera);
+      document.getElementById("stop-camera").addEventListener("click", stopCamera);
+
+      if (!tournamentNo || !scanToken) {
+        setStatus("This scanner URL is missing tournament or scan token.", "danger");
+      } else if (!window.isSecureContext) {
+        setStatus("Live camera is blocked on HTTP. Use HTTPS or mark this local URL as secure.", "danger");
+      }
+
+      async function startCamera() {
+        if (scanning) return;
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setStatus("Live camera is blocked. The phone browser needs this scanner URL to be secure.", "danger");
+          return;
+        }
+
+        if (!("BarcodeDetector" in window)) {
+          startQuaggaCamera();
+          return;
+        }
+
+        try {
+          detector = await createBarcodeDetector();
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "environment" } },
+            audio: false
+          });
+          liveCameraPanel.hidden = false;
+          video.hidden = false;
+          quaggaViewport.hidden = true;
+          video.srcObject = stream;
+          await video.play();
+          scanning = true;
+          setStatus("Scanning...", "");
+          scanLoop();
+        } catch (error) {
+          stopCamera();
+          setStatus("Could not start camera: " + error.message, "danger");
+        }
+      }
+
+      function startQuaggaCamera() {
+        if (!window.Quagga) {
+          setStatus("This browser cannot read live barcodes.", "danger");
+          return;
+        }
+
+        liveCameraPanel.hidden = false;
+        video.hidden = true;
+        quaggaViewport.hidden = false;
+        quaggaViewport.innerHTML = "";
+
+        quaggaHandler = function (result) {
+          var code = result && result.codeResult && result.codeResult.code;
+          var id = readCardGameId(code);
+          if (id) {
+            submitScan(id, "camera");
+          }
+        };
+
+        window.Quagga.init({
+          inputStream: {
+            name: "Live",
+            type: "LiveStream",
+            target: quaggaViewport,
+            constraints: {
+              facingMode: "environment"
+            }
+          },
+          locator: {
+            patchSize: "medium",
+            halfSample: true
+          },
+          decoder: {
+            readers: [
+              "code_128_reader",
+              "code_39_reader",
+              "codabar_reader",
+              "ean_reader",
+              "ean_8_reader",
+              "upc_reader",
+              "upc_e_reader"
+            ]
+          },
+          locate: true,
+          numOfWorkers: Math.min(2, navigator.hardwareConcurrency || 1)
+        }, function (error) {
+          if (error) {
+            stopCamera();
+            setStatus("Could not start live camera: " + (error.message || error), "danger");
+            return;
+          }
+
+          scanning = true;
+          quaggaActive = true;
+          window.Quagga.onDetected(quaggaHandler);
+          window.Quagga.start();
+          setStatus("Scanning...", "");
+        });
+      }
+
+      function stopCamera() {
+        scanning = false;
+        if (frame) cancelAnimationFrame(frame);
+        frame = 0;
+
+        if (quaggaActive && window.Quagga) {
+          if (quaggaHandler && window.Quagga.offDetected) {
+            window.Quagga.offDetected(quaggaHandler);
+          }
+          window.Quagga.stop();
+        }
+
+        if (stream) {
+          stream.getTracks().forEach(function (track) {
+            track.stop();
+          });
+        }
+
+        stream = null;
+        video.srcObject = null;
+        video.hidden = false;
+        quaggaActive = false;
+        quaggaHandler = null;
+        quaggaViewport.innerHTML = "";
+        quaggaViewport.hidden = true;
+        liveCameraPanel.hidden = true;
+      }
+
+      async function scanLoop() {
+        if (!scanning) return;
+
+        if (!video || video.readyState < 2) {
+          frame = requestAnimationFrame(scanLoop);
+          return;
+        }
+
+        try {
+          var results = await detector.detect(video);
+          if (results && results.length) {
+            var id = readFirstCardGameId(results);
+            if (id) {
+              await submitScan(id, "camera");
+            } else {
+              setStatus("Ignored barcode. Card Game ID must be exactly 10 digits.", "danger");
+            }
+          }
+        } catch (error) {
+          stopCamera();
+          setStatus("Scanner stopped: " + error.message, "danger");
+          return;
+        }
+
+        frame = requestAnimationFrame(scanLoop);
+      }
+
+      async function submitScan(rawId, source) {
+        var cardGameId = readCardGameId(rawId);
+        var now = Date.now();
+
+        if (!tournamentNo || !scanToken) {
+          setStatus("Missing tournament or scan token.", "danger");
+          return;
+        }
+
+        if (!/^\d{10}$/.test(cardGameId)) {
+          setStatus("Card Game ID must be 10 digits.", "danger");
+          return;
+        }
+
+        if (cardGameId === lastSubmittedId && now - lastSubmittedAt < 8000) {
+          return;
+        }
+
+        lastSubmittedId = cardGameId;
+        lastSubmittedAt = now;
+
+        try {
+          var response = await fetch("/api/tournaments/" + encodeURIComponent(tournamentNo) + "/scans", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              cardGameId: cardGameId,
+              scannerName: scannerName.value.trim() || "phone",
+              scanToken: scanToken,
+              source: source
+            })
+          });
+          var payload = await response.json();
+
+          if (!response.ok || !payload.ok) {
+            throw new Error(payload.error || "Scan failed.");
+          }
+
+          manualId.value = "";
+          showQueue(payload.entry);
+        } catch (error) {
+          setStatus(error.message, "danger");
+        }
+      }
+
+      function showQueue(entry) {
+        queueNoEl.textContent = entry.queueNo;
+        queueCard.hidden = false;
+        setStatus(entry.duplicate ? "Already scanned. Use the same queue number." : "Queue number created.", "success");
+        notify();
+      }
+
+      function notify() {
+        if (navigator.vibrate) navigator.vibrate([90, 40, 90]);
+
+        try {
+          var context = new (window.AudioContext || window.webkitAudioContext)();
+          var oscillator = context.createOscillator();
+          var gain = context.createGain();
+          oscillator.frequency.value = 880;
+          gain.gain.value = 0.04;
+          oscillator.connect(gain);
+          gain.connect(context.destination);
+          oscillator.start();
+          setTimeout(function () {
+            oscillator.stop();
+            context.close();
+          }, 120);
+        } catch (error) {
+          // Vibration is enough when audio is unavailable.
+        }
+      }
+
+      function normalizeId(value) {
+        return String(value || "")
+          .replace(/[０-９]/g, function (digit) {
+            return String.fromCharCode(digit.charCodeAt(0) - 65248);
+          })
+          .replace(/\D/g, "");
+      }
+
+      function readCardGameId(value) {
+        var digits = normalizeId(value);
+        return /^\d{10}$/.test(digits) ? digits : "";
+      }
+
+      function readFirstCardGameId(results) {
+        if (!results || !results.length) return "";
+
+        for (var i = 0; i < results.length; i += 1) {
+          var id = readCardGameId(results[i].rawValue);
+          if (id) return id;
+        }
+
+        return "";
+      }
+
+      async function createBarcodeDetector() {
+        var formats = await BarcodeDetector.getSupportedFormats();
+        var preferred = formats.filter(function (format) {
+          return ["code_128", "code_39", "code_93", "codabar", "ean_13", "ean_8", "qr_code", "upc_a", "upc_e"].indexOf(format) !== -1;
+        });
+
+        return new BarcodeDetector({ formats: preferred.length ? preferred : formats });
+      }
+
+      function setStatus(message, type) {
+        statusEl.textContent = message;
+        statusEl.dataset.type = type || "";
+      }
+    })();
+  </script>
+</body>
+</html>

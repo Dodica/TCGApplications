@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entry Queue Counter</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: #17202a;
+      background: #eef2f6;
+      font: 15px/1.4 Arial, sans-serif;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 16px;
+      color: #fff;
+      background: #223044;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    header p {
+      margin: 2px 0 0;
+      color: #cbd5e1;
+      font-size: 12px;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(320px, 420px) 1fr;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .panel {
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .panel header {
+      display: block;
+      padding: 10px 12px;
+      color: #17202a;
+      background: #f8fafc;
+      border-bottom: 1px solid #d5dce5;
+    }
+
+    .panel h2 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .content {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: #526173;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    input {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid #aeb9c7;
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: #17202a;
+      background: #fff;
+      font-size: 16px;
+    }
+
+    .queue-input {
+      min-height: 62px;
+      font-size: 34px;
+      font-weight: 800;
+      letter-spacing: 0;
+      text-align: center;
+    }
+
+    button {
+      min-height: 40px;
+      border: 1px solid #9aa8b8;
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: #17202a;
+      background: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.primary {
+      color: #fff;
+      border-color: #157347;
+      background: #198754;
+    }
+
+    button.danger {
+      color: #b02a37;
+      border-color: #b02a37;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .row > * {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .status {
+      min-height: 38px;
+      border: 1px solid #d5dce5;
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: #526173;
+      background: #fff;
+    }
+
+    .status[data-type="success"] {
+      color: #0f5132;
+      border-color: #badbcc;
+      background: #f0f8f3;
+    }
+
+    .status[data-type="warning"] {
+      color: #664d03;
+      border-color: #ffecb5;
+      background: #fff8e5;
+    }
+
+    .status[data-type="danger"] {
+      color: #842029;
+      border-color: #f5c2c7;
+      background: #fff1f2;
+    }
+
+    .id-card {
+      display: grid;
+      gap: 6px;
+      min-height: 118px;
+      border: 2px solid #badbcc;
+      border-radius: 8px;
+      padding: 12px;
+      background: #f0f8f3;
+    }
+
+    .id-card span {
+      color: #0f5132;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .id-card strong {
+      color: #0f5132;
+      font-size: clamp(30px, 6vw, 46px);
+      line-height: 1;
+      letter-spacing: 0;
+      word-break: break-all;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .stat {
+      border: 1px solid #d5dce5;
+      border-radius: 6px;
+      padding: 8px;
+      background: #f8fafc;
+    }
+
+    .stat span {
+      display: block;
+      color: #526173;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .stat strong {
+      display: block;
+      margin-top: 2px;
+      font-size: 22px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: 8px;
+      border-bottom: 1px solid #e1e7ef;
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      color: #526173;
+      background: #f8fafc;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    td:first-child {
+      width: 86px;
+      font-weight: 800;
+      font-size: 18px;
+    }
+
+    .badge {
+      display: inline-block;
+      min-width: 72px;
+      border-radius: 999px;
+      padding: 3px 8px;
+      color: #526173;
+      background: #eef2f6;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .badge.waiting {
+      color: #0f5132;
+      background: #d1e7dd;
+    }
+
+    .badge.called {
+      color: #664d03;
+      background: #fff3cd;
+    }
+
+    .badge.paid_submitted {
+      color: #084298;
+      background: #cfe2ff;
+    }
+
+    .badge.void {
+      color: #842029;
+      background: #f8d7da;
+    }
+
+    @media (max-width: 820px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>Entry Queue Counter</h1>
+        <p id="tournament-label">Tournament</p>
+      </div>
+      <button id="export-csv" type="button">Export CSV</button>
+    </header>
+
+    <main>
+      <section class="panel">
+        <header>
+          <h2>Counter Lookup</h2>
+        </header>
+
+        <div class="content">
+          <div class="row">
+            <label>
+              Tournament
+              <input id="tournament-no" autocomplete="off" placeholder="E26-063505">
+            </label>
+            <label>
+              Admin token
+              <input id="admin-token" type="password" autocomplete="off">
+            </label>
+          </div>
+
+          <label>
+            Queue number
+            <input id="queue-no" class="queue-input" inputmode="numeric" pattern="[0-9]*" autocomplete="off" autofocus placeholder="027">
+          </label>
+
+          <div class="id-card" id="id-card" hidden>
+            <span>Card Game ID</span>
+            <strong id="card-game-id"></strong>
+          </div>
+
+          <div class="row">
+            <button id="lookup" type="button">Lookup</button>
+            <button id="copy-id" class="primary" type="button">Copy ID</button>
+            <button id="paid-submit" class="primary" type="button">Paid / Submitted</button>
+          </div>
+
+          <div class="row">
+            <button id="called" type="button">Mark Called</button>
+            <button id="void" class="danger" type="button">Void</button>
+          </div>
+
+          <div id="status" class="status">Ready.</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header>
+          <h2>Queue</h2>
+        </header>
+
+        <div class="content">
+          <div class="stats">
+            <div class="stat"><span>Waiting</span><strong id="waiting-count">0</strong></div>
+            <div class="stat"><span>Called</span><strong id="called-count">0</strong></div>
+            <div class="stat"><span>Paid</span><strong id="paid-count">0</strong></div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Queue</th>
+              <th>ID</th>
+              <th>Status</th>
+              <th>Scanner</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="queue-body">
+            <tr><td colspan="5">No entries yet.</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var params = new URLSearchParams(location.search);
+      var state = {
+        tournamentNo: params.get("tournament") || localStorage.getItem("entry-queue-counter-tournament") || "",
+        adminToken: params.get("adminToken") || localStorage.getItem("entry-queue-counter-admin-token") || "",
+        entries: [],
+        selected: null
+      };
+
+      var tournamentInput = document.getElementById("tournament-no");
+      var tokenInput = document.getElementById("admin-token");
+      var queueInput = document.getElementById("queue-no");
+      var statusEl = document.getElementById("status");
+      var idCard = document.getElementById("id-card");
+      var idEl = document.getElementById("card-game-id");
+      var queueBody = document.getElementById("queue-body");
+
+      tournamentInput.value = state.tournamentNo;
+      tokenInput.value = state.adminToken;
+      updateTournamentLabel();
+
+      tournamentInput.addEventListener("change", function () {
+        state.tournamentNo = tournamentInput.value.trim();
+        localStorage.setItem("entry-queue-counter-tournament", state.tournamentNo);
+        updateTournamentLabel();
+        poll();
+      });
+
+      tokenInput.addEventListener("change", function () {
+        state.adminToken = tokenInput.value.trim();
+        localStorage.setItem("entry-queue-counter-admin-token", state.adminToken);
+        poll();
+      });
+
+      queueInput.addEventListener("input", function () {
+        var normalized = normalizeId(queueInput.value);
+        if (queueInput.value !== normalized) queueInput.value = normalized;
+      });
+
+      queueInput.addEventListener("keydown", function (event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          lookup();
+        }
+      });
+
+      document.getElementById("lookup").addEventListener("click", lookup);
+      document.getElementById("copy-id").addEventListener("click", copySelectedId);
+      document.getElementById("called").addEventListener("click", function () {
+        updateSelectedStatus("called");
+      });
+      document.getElementById("paid-submit").addEventListener("click", function () {
+        updateSelectedStatus("paid_submitted");
+      });
+      document.getElementById("void").addEventListener("click", function () {
+        updateSelectedStatus("void");
+      });
+      document.getElementById("export-csv").addEventListener("click", exportCsv);
+
+      queueBody.addEventListener("click", function (event) {
+        var row = event.target.closest("tr[data-queue-no]");
+        if (!row) return;
+        queueInput.value = row.dataset.queueNo;
+        lookup();
+      });
+
+      setInterval(poll, 1500);
+      poll();
+
+      function lookup() {
+        var queueNo = normalizeQueueNo(queueInput.value);
+        if (!queueNo) {
+          setStatus("Enter a queue number.", "danger");
+          return;
+        }
+
+        var entry = findEntry(queueNo);
+        if (!entry) {
+          setStatus("Queue number not found.", "danger");
+          clearSelected();
+          return;
+        }
+
+        state.selected = entry;
+        idEl.textContent = entry.cardGameId;
+        idCard.hidden = false;
+        setStatus("Queue " + entry.queueNo + " found. Copy the ID into KONAMI.", "success");
+        updateStatus(entry.queueNo, "called", true);
+        copyText(entry.cardGameId, true);
+      }
+
+      function copySelectedId() {
+        if (!state.selected) {
+          setStatus("Lookup a queue number first.", "danger");
+          return;
+        }
+
+        copyText(state.selected.cardGameId, false);
+      }
+
+      function updateSelectedStatus(status) {
+        if (!state.selected) {
+          setStatus("Lookup a queue number first.", "danger");
+          return;
+        }
+
+        updateStatus(state.selected.queueNo, status, false);
+      }
+
+      function updateStatus(queueNo, status, quiet) {
+        if (!ready()) return;
+
+        fetch("/api/tournaments/" + encodeURIComponent(state.tournamentNo) + "/queue/" + encodeURIComponent(queueNo), {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Admin-Token": state.adminToken
+          },
+          body: JSON.stringify({ status: status })
+        }).then(function (response) {
+          return response.json().then(function (payload) {
+            if (!response.ok || !payload.ok) throw new Error(payload.error || "Update failed.");
+            state.selected = payload.entry;
+            if (!quiet) setStatus("Queue " + queueNo + " marked " + label(status) + ".", "success");
+            poll();
+          });
+        }).catch(function (error) {
+          setStatus(error.message, "danger");
+        });
+      }
+
+      function poll() {
+        if (!ready(true)) return;
+
+        fetch("/api/tournaments/" + encodeURIComponent(state.tournamentNo) + "/queue", {
+          headers: { "X-Admin-Token": state.adminToken }
+        }).then(function (response) {
+          return response.json().then(function (payload) {
+            if (!response.ok || !payload.ok) throw new Error(payload.error || "Queue load failed.");
+            state.entries = Array.isArray(payload.entries) ? payload.entries : [];
+            renderQueue();
+          });
+        }).catch(function (error) {
+          setStatus(error.message, "danger");
+        });
+      }
+
+      function renderQueue() {
+        var waiting = 0;
+        var called = 0;
+        var paid = 0;
+
+        state.entries.forEach(function (entry) {
+          if (entry.status === "waiting") waiting += 1;
+          if (entry.status === "called") called += 1;
+          if (entry.status === "paid_submitted") paid += 1;
+        });
+
+        document.getElementById("waiting-count").textContent = String(waiting);
+        document.getElementById("called-count").textContent = String(called);
+        document.getElementById("paid-count").textContent = String(paid);
+
+        var visible = state.entries.slice().sort(function (a, b) {
+          return Number(a.queueNo) - Number(b.queueNo);
+        });
+
+        queueBody.innerHTML = visible.map(function (entry) {
+          var time = entry.scannedAt ? new Date(entry.scannedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+          return "<tr data-queue-no=\"" + escapeHtml(entry.queueNo) + "\">" +
+            "<td>" + escapeHtml(entry.queueNo) + "</td>" +
+            "<td>" + escapeHtml(maskId(entry.cardGameId)) + "</td>" +
+            "<td><span class=\"badge " + escapeHtml(entry.status) + "\">" + escapeHtml(label(entry.status)) + "</span></td>" +
+            "<td>" + escapeHtml(entry.scannerName || "") + "</td>" +
+            "<td>" + escapeHtml(time) + "</td>" +
+            "</tr>";
+        }).join("") || "<tr><td colspan=\"5\">No entries yet.</td></tr>";
+      }
+
+      function exportCsv() {
+        var rows = [["queueNo", "cardGameId", "status", "scannerName", "scannedAt", "calledAt", "paidSubmittedAt", "voidedAt"]];
+        state.entries.forEach(function (entry) {
+          rows.push([
+            entry.queueNo,
+            entry.cardGameId,
+            entry.status,
+            entry.scannerName || "",
+            entry.scannedAt || "",
+            entry.calledAt || "",
+            entry.paidSubmittedAt || "",
+            entry.voidedAt || ""
+          ]);
+        });
+
+        var csv = rows.map(function (row) {
+          return row.map(csvCell).join(",");
+        }).join("\n");
+        var blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        var link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "entry-queue-" + state.tournamentNo + ".csv";
+        document.body.appendChild(link);
+        link.click();
+        URL.revokeObjectURL(link.href);
+        link.remove();
+      }
+
+      function findEntry(queueNo) {
+        return state.entries.find(function (entry) {
+          return entry.queueNo === queueNo;
+        }) || null;
+      }
+
+      function clearSelected() {
+        state.selected = null;
+        idEl.textContent = "";
+        idCard.hidden = true;
+      }
+
+      function ready(silent) {
+        if (!state.tournamentNo) {
+          if (!silent) setStatus("Enter tournament number.", "danger");
+          return false;
+        }
+
+        if (!state.adminToken) {
+          if (!silent) setStatus("Enter admin token.", "danger");
+          return false;
+        }
+
+        return true;
+      }
+
+      function copyText(text, quiet) {
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(text).then(function () {
+            if (!quiet) setStatus("Card Game ID copied.", "success");
+          }).catch(function () {
+            fallbackCopy(text, quiet);
+          });
+          return;
+        }
+
+        fallbackCopy(text, quiet);
+      }
+
+      function fallbackCopy(text, quiet) {
+        var textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        try {
+          document.execCommand("copy");
+          if (!quiet) setStatus("Card Game ID copied.", "success");
+        } catch (error) {
+          if (!quiet) setStatus("Copy failed. Select the ID manually.", "warning");
+        }
+        textarea.remove();
+      }
+
+      function updateTournamentLabel() {
+        document.getElementById("tournament-label").textContent = state.tournamentNo ? "Tournament " + state.tournamentNo : "No tournament selected";
+      }
+
+      function maskId(id) {
+        return "*******" + String(id || "").slice(-3);
+      }
+
+      function normalizeId(value) {
+        return String(value || "")
+          .replace(/[０-９]/g, function (digit) {
+            return String.fromCharCode(digit.charCodeAt(0) - 65248);
+          })
+          .replace(/\D/g, "");
+      }
+
+      function normalizeQueueNo(value) {
+        var digits = normalizeId(value);
+        if (!digits) return "";
+        return String(Number(digits)).padStart(3, "0");
+      }
+
+      function label(status) {
+        if (status === "paid_submitted") return "paid";
+        return status || "unknown";
+      }
+
+      function setStatus(message, type) {
+        statusEl.textContent = message;
+        statusEl.dataset.type = type || "";
+      }
+
+      function escapeHtml(value) {
+        return String(value == null ? "" : value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function csvCell(value) {
+        var text = String(value == null ? "" : value);
+        if (/["\n,]/.test(text)) return "\"" + text.replace(/"/g, "\"\"") + "\"";
+        return text;
+      }
+    })();
+  </script>
+</body>
+</html>

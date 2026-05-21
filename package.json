@@ -1,0 +1,9 @@
+{
+  "name": "tcgapplications",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "node queue-server.js",
+    "queue": "node queue-server.js"
+  }
+}
