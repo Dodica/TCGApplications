@@ -9,6 +9,10 @@
       box-sizing: border-box;
     }
 
+    [hidden] {
+      display: none !important;
+    }
+
     body {
       margin: 0;
       color: #17202a;
@@ -22,7 +26,7 @@
       grid-template-rows: auto 1fr;
     }
 
-    header {
+    .topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -32,12 +36,12 @@
       background: #223044;
     }
 
-    header h1 {
+    .topbar h1 {
       margin: 0;
       font-size: 18px;
     }
 
-    header p {
+    .topbar p {
       margin: 2px 0 0;
       color: #cbd5e1;
       font-size: 12px;
@@ -57,7 +61,7 @@
       overflow: hidden;
     }
 
-    .panel header {
+    .panel__header {
       display: block;
       padding: 10px 12px;
       color: #17202a;
@@ -65,7 +69,7 @@
       border-bottom: 1px solid #d5dce5;
     }
 
-    .panel h2 {
+    .panel__header h2 {
       margin: 0;
       font-size: 15px;
     }
@@ -121,9 +125,12 @@
       background: #198754;
     }
 
-    button.danger {
-      color: #b02a37;
-      border-color: #b02a37;
+    button:hover {
+      background: #eef3f8;
+    }
+
+    button.primary:hover {
+      background: #157347;
     }
 
     .row {
@@ -150,12 +157,6 @@
       color: #0f5132;
       border-color: #badbcc;
       background: #f0f8f3;
-    }
-
-    .status[data-type="warning"] {
-      color: #664d03;
-      border-color: #ffecb5;
-      background: #fff8e5;
     }
 
     .status[data-type="danger"] {
@@ -220,6 +221,10 @@
       border-collapse: collapse;
     }
 
+    .table-wrap {
+      overflow: auto;
+    }
+
     th,
     td {
       padding: 8px;
@@ -239,6 +244,14 @@
       width: 86px;
       font-weight: 800;
       font-size: 18px;
+    }
+
+    tbody tr[data-queue-no] {
+      cursor: pointer;
+    }
+
+    tbody tr[data-queue-no]:hover {
+      background: #f8fafc;
     }
 
     .badge {
@@ -271,7 +284,7 @@
 </head>
 <body>
   <div class="app">
-    <header>
+    <header class="topbar">
       <div>
         <h1>Entry Queue Counter</h1>
         <p>Type a queue number to reveal the ID</p>
@@ -281,7 +294,7 @@
 
     <main>
       <section class="panel">
-        <header>
+        <header class="panel__header">
           <h2>Counter Lookup</h2>
         </header>
 
@@ -296,8 +309,9 @@
             <strong id="card-game-id"></strong>
           </div>
 
-          <div class="row">
-            <button id="lookup" type="button">Lookup</button>
+          <button id="lookup" type="button">Lookup</button>
+
+          <div id="selected-actions" class="row" hidden>
             <button id="done" class="primary" type="button">Done</button>
             <button id="waiting" type="button">Back to Waiting</button>
           </div>
@@ -307,7 +321,7 @@
       </section>
 
       <section class="panel">
-        <header>
+        <header class="panel__header">
           <h2>Queue</h2>
         </header>
 
@@ -318,20 +332,22 @@
           </div>
         </div>
 
-        <table>
-          <thead>
-            <tr>
-              <th>Queue</th>
-              <th>ID</th>
-              <th>Status</th>
-              <th>Scanner</th>
-              <th>Time</th>
-            </tr>
-          </thead>
-          <tbody id="queue-body">
-            <tr><td colspan="5">No entries yet.</td></tr>
-          </tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Queue</th>
+                <th>ID</th>
+                <th>Status</th>
+                <th>Scanner</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody id="queue-body">
+              <tr><td colspan="5">No entries yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </main>
   </div>
@@ -340,25 +356,34 @@
     (function () {
       "use strict";
 
+      var ADMIN_TOKEN_KEY = "entry-queue-counter-admin-token";
+      var POLL_INTERVAL_MS = 1500;
       var params = new URLSearchParams(location.search);
       var state = {
-        adminToken: params.get("adminToken") || localStorage.getItem("entry-queue-counter-admin-token") || "",
+        adminToken: params.get("adminToken") || localStorage.getItem(ADMIN_TOKEN_KEY) || "",
         entries: [],
         selected: null
       };
 
       var queueInput = document.getElementById("queue-no");
+      var lookupButton = document.getElementById("lookup");
+      var doneButton = document.getElementById("done");
+      var waitingButton = document.getElementById("waiting");
+      var exportButton = document.getElementById("export-csv");
       var statusEl = document.getElementById("status");
       var idCard = document.getElementById("id-card");
       var idEl = document.getElementById("card-game-id");
       var queueBody = document.getElementById("queue-body");
+      var selectedActions = document.getElementById("selected-actions");
+      var waitingCount = document.getElementById("waiting-count");
+      var doneCount = document.getElementById("done-count");
 
       if (params.get("adminToken")) {
-        localStorage.setItem("entry-queue-counter-admin-token", state.adminToken);
+        localStorage.setItem(ADMIN_TOKEN_KEY, state.adminToken);
       }
 
       queueInput.addEventListener("input", function () {
-        var normalized = normalizeId(queueInput.value);
+        var normalized = digitsOnly(queueInput.value);
         if (queueInput.value !== normalized) queueInput.value = normalized;
       });
 
@@ -369,14 +394,14 @@
         }
       });
 
-      document.getElementById("lookup").addEventListener("click", lookup);
-      document.getElementById("done").addEventListener("click", function () {
+      lookupButton.addEventListener("click", lookup);
+      doneButton.addEventListener("click", function () {
         updateSelectedStatus("done");
       });
-      document.getElementById("waiting").addEventListener("click", function () {
+      waitingButton.addEventListener("click", function () {
         updateSelectedStatus("waiting");
       });
-      document.getElementById("export-csv").addEventListener("click", exportCsv);
+      exportButton.addEventListener("click", exportCsv);
 
       queueBody.addEventListener("click", function (event) {
         var row = event.target.closest("tr[data-queue-no]");
@@ -385,7 +410,11 @@
         lookup();
       });
 
-      setInterval(poll, 1500);
+      if (!state.adminToken) {
+        setStatus("Open the counter with its adminToken link.", "danger");
+      }
+
+      setInterval(poll, POLL_INTERVAL_MS);
       poll();
 
       function lookup() {
@@ -405,6 +434,7 @@
         state.selected = entry;
         idEl.textContent = entry.id;
         idCard.hidden = false;
+        selectedActions.hidden = false;
         queueInput.value = "";
         setStatus("Queue " + entry.queueNo + " found.", "success");
       }
@@ -415,11 +445,11 @@
           return;
         }
 
-        updateStatus(state.selected.queueNo, status, false);
+        updateStatus(state.selected.queueNo, status);
       }
 
-      function updateStatus(queueNo, status, quiet) {
-        if (!ready()) return;
+      function updateStatus(queueNo, status) {
+        if (!hasAdminToken()) return;
 
         fetch("/api/queue/" + encodeURIComponent(queueNo), {
           method: "PATCH",
@@ -431,8 +461,9 @@
         }).then(function (response) {
           return response.json().then(function (payload) {
             if (!response.ok || !payload.ok) throw new Error(payload.error || "Update failed.");
-            state.selected = payload.entry;
-            if (!quiet) setStatus("Queue " + queueNo + " marked " + label(status) + ".", "success");
+            clearSelected();
+            queueInput.focus();
+            setStatus("Queue " + queueNo + " marked " + statusLabel(status) + ".", "success");
             poll();
           });
         }).catch(function (error) {
@@ -441,7 +472,7 @@
       }
 
       function poll() {
-        if (!ready(true)) return;
+        if (!hasAdminToken(true)) return;
 
         fetch("/api/queue", {
           headers: { "X-Admin-Token": state.adminToken }
@@ -465,8 +496,8 @@
           if (entry.status === "done") done += 1;
         });
 
-        document.getElementById("waiting-count").textContent = String(waiting);
-        document.getElementById("done-count").textContent = String(done);
+        waitingCount.textContent = String(waiting);
+        doneCount.textContent = String(done);
 
         var visible = state.entries.slice().sort(function (a, b) {
           return Number(a.queueNo) - Number(b.queueNo);
@@ -477,7 +508,7 @@
           return "<tr data-queue-no=\"" + escapeHtml(entry.queueNo) + "\">" +
             "<td>" + escapeHtml(entry.queueNo) + "</td>" +
             "<td>" + escapeHtml(entry.id) + "</td>" +
-            "<td><span class=\"badge " + escapeHtml(entry.status) + "\">" + escapeHtml(label(entry.status)) + "</span></td>" +
+            "<td><span class=\"badge " + escapeHtml(entry.status) + "\">" + escapeHtml(statusLabel(entry.status)) + "</span></td>" +
             "<td>" + escapeHtml(entry.scannerName || "") + "</td>" +
             "<td>" + escapeHtml(time) + "</td>" +
             "</tr>";
@@ -520,9 +551,10 @@
         state.selected = null;
         idEl.textContent = "";
         idCard.hidden = true;
+        selectedActions.hidden = true;
       }
 
-      function ready(silent) {
+      function hasAdminToken(silent) {
         if (!state.adminToken) {
           if (!silent) setStatus("Open the counter with its adminToken link.", "danger");
           return false;
@@ -531,18 +563,19 @@
         return true;
       }
 
-      function normalizeId(value) {
+      function digitsOnly(value) {
         return String(value || "")
           .replace(/\D/g, "");
       }
 
       function normalizeQueueNo(value) {
-        var digits = normalizeId(value);
+        var digits = digitsOnly(value);
+        var unpadded = digits.replace(/^0+/, "");
         if (!digits) return "";
-        return String(Number(digits)).padStart(3, "0");
+        return (unpadded || "0").padStart(3, "0");
       }
 
-      function label(status) {
+      function statusLabel(status) {
         return status || "unknown";
       }
 

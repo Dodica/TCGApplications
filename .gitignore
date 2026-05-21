@@ -1,11 +1,6 @@
 node_modules/
 queue-data/
-certs/
 .env
 .env.*
 *.log
 *.tmp
-
-# Captured reference pages, not part of the app.
-KONAMI CARD GAME NETWORK.html
-KONAMI CARD GAME NETWORK_files/

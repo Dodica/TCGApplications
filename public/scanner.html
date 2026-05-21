@@ -9,6 +9,10 @@
       box-sizing: border-box;
     }
 
+    [hidden] {
+      display: none !important;
+    }
+
     body {
       margin: 0;
       color: #17202a;
@@ -22,18 +26,18 @@
       grid-template-rows: auto 1fr auto;
     }
 
-    header {
+    .topbar {
       padding: 14px 16px;
       color: #fff;
       background: #223044;
     }
 
-    header h1 {
+    .topbar h1 {
       margin: 0;
       font-size: 18px;
     }
 
-    header p {
+    .topbar p {
       margin: 3px 0 0;
       color: #cbd5e1;
       font-size: 13px;
@@ -58,21 +62,12 @@
       background: #000;
     }
 
-    .camera[hidden] {
-      display: none;
-    }
-
     video {
       width: 100%;
       aspect-ratio: 3 / 4;
       display: block;
       object-fit: cover;
       background: #000;
-    }
-
-    video[hidden],
-    .quagga-viewport[hidden] {
-      display: none;
     }
 
     .quagga-viewport video,
@@ -135,11 +130,33 @@
       background: #fff;
       font-weight: 700;
       font-size: 16px;
+      cursor: pointer;
     }
 
     button.primary {
       color: #fff;
       border-color: #157347;
+      background: #198754;
+    }
+
+    button:hover {
+      background: #eef3f8;
+    }
+
+    button:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+
+    button:disabled:hover {
+      background: #fff;
+    }
+
+    button.primary:hover {
+      background: #157347;
+    }
+
+    button.primary:disabled:hover {
       background: #198754;
     }
 
@@ -181,10 +198,6 @@
       place-items: center;
       padding: 18px;
       background: rgba(9, 16, 27, .76);
-    }
-
-    .success-modal[hidden] {
-      display: none;
     }
 
     .success-card {
@@ -244,7 +257,7 @@
       background: #fff1f2;
     }
 
-    footer {
+    .footerbar {
       padding: 10px 12px;
       color: #526173;
       font-size: 12px;
@@ -254,7 +267,7 @@
 </head>
 <body>
   <div class="app">
-    <header>
+    <header class="topbar">
       <h1>Entry Queue Scanner</h1>
       <p>Scan IDs into the counter queue</p>
     </header>
@@ -297,7 +310,7 @@
       </section>
     </main>
 
-    <footer>
+    <footer class="footerbar">
       Phone scanners create queue numbers only. Accepted IDs are exactly 10 digits.
     </footer>
   </div>
@@ -316,19 +329,29 @@
     (function () {
       "use strict";
 
+      var SCANNER_NAME_KEY = "entry-queue-scanner-name";
+      var DUPLICATE_SUPPRESS_MS = 8000;
+      var BEEP_FREQUENCY = 880;
+      var BEEP_VOLUME = 0.04;
+      var BEEP_DURATION_MS = 120;
       var params = new URLSearchParams(location.search);
       var scanToken = params.get("scanToken") || "";
       var detector = null;
       var stream = null;
       var frame = 0;
+      var cameraStarting = false;
       var scanning = false;
       var quaggaActive = false;
       var quaggaHandler = null;
+      var submitting = false;
       var lastSubmittedId = "";
       var lastSubmittedAt = 0;
       var confirmationOpen = false;
 
       var liveCameraPanel = document.getElementById("live-camera-panel");
+      var startCameraButton = document.getElementById("start-camera");
+      var stopCameraButton = document.getElementById("stop-camera");
+      var manualSubmitButton = document.getElementById("manual-submit");
       var video = document.getElementById("video");
       var quaggaViewport = document.getElementById("quagga-viewport");
       var statusEl = document.getElementById("status");
@@ -336,37 +359,42 @@
       var queueNoEl = document.getElementById("queue-no");
       var successModal = document.getElementById("success-modal");
       var successQueueNo = document.getElementById("success-queue-no");
+      var successCloseButton = document.getElementById("success-close");
       var manualId = document.getElementById("manual-id");
       var scannerName = document.getElementById("scanner-name");
 
-      scannerName.value = localStorage.getItem("entry-queue-scanner-name") || "";
+      scannerName.value = localStorage.getItem(SCANNER_NAME_KEY) || "";
 
       scannerName.addEventListener("input", function () {
-        localStorage.setItem("entry-queue-scanner-name", scannerName.value.trim());
+        localStorage.setItem(SCANNER_NAME_KEY, scannerName.value.trim());
       });
 
       manualId.addEventListener("input", function () {
-        var normalized = normalizeId(manualId.value);
+        var normalized = digitsOnly(manualId.value);
         if (manualId.value !== normalized) manualId.value = normalized;
         if (normalized.length === 10) {
-          submitScan(normalized, "manual");
+          submitScan(normalized);
         }
       });
 
       manualId.addEventListener("keydown", function (event) {
         if (event.key === "Enter") {
           event.preventDefault();
-          submitScan(manualId.value, "manual");
+          submitScan(manualId.value);
         }
       });
 
-      document.getElementById("manual-submit").addEventListener("click", function () {
-        submitScan(manualId.value, "manual");
+      manualSubmitButton.addEventListener("click", function () {
+        submitScan(manualId.value);
       });
 
-      document.getElementById("start-camera").addEventListener("click", startCamera);
-      document.getElementById("stop-camera").addEventListener("click", stopCamera);
-      document.getElementById("success-close").addEventListener("click", closeSuccessModal);
+      startCameraButton.addEventListener("click", startCamera);
+      stopCameraButton.addEventListener("click", function () {
+        stopCamera();
+        setStatus("Camera stopped.", "");
+      });
+      successCloseButton.addEventListener("click", closeSuccessModal);
+      updateControls();
 
       if (!scanToken) {
         setStatus("This scanner URL is missing the scan token.", "danger");
@@ -375,13 +403,20 @@
       }
 
       async function startCamera() {
-        if (scanning) return;
+        if (cameraStarting || scanning) return;
+
+        if (!scanToken) {
+          setStatus("Missing scan token.", "danger");
+          return;
+        }
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
           setStatus("Live camera is blocked. The phone browser needs this scanner URL to be secure.", "danger");
           return;
         }
 
+        cameraStarting = true;
+        updateControls();
         if (!("BarcodeDetector" in window)) {
           startQuaggaCamera();
           return;
@@ -389,16 +424,28 @@
 
         try {
           detector = await createBarcodeDetector();
+          if (!cameraStarting) return;
+
           stream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: { ideal: "environment" } },
             audio: false
           });
-          liveCameraPanel.hidden = false;
-          video.hidden = false;
-          quaggaViewport.hidden = true;
+
+          if (!cameraStarting) {
+            stream.getTracks().forEach(function (track) {
+              track.stop();
+            });
+            stream = null;
+            updateControls();
+            return;
+          }
+
+          showNativeCamera();
           video.srcObject = stream;
           await video.play();
           scanning = true;
+          cameraStarting = false;
+          updateControls();
           setStatus("Scanning...", "");
           scanLoop();
         } catch (error) {
@@ -409,13 +456,13 @@
 
       function startQuaggaCamera() {
         if (!window.Quagga) {
+          cameraStarting = false;
+          updateControls();
           setStatus("This browser cannot read live barcodes.", "danger");
           return;
         }
 
-        liveCameraPanel.hidden = false;
-        video.hidden = true;
-        quaggaViewport.hidden = false;
+        showQuaggaCamera();
         quaggaViewport.innerHTML = "";
 
         quaggaHandler = function (result) {
@@ -423,62 +470,70 @@
           var code = result && result.codeResult && result.codeResult.code;
           var id = readId(code);
           if (id) {
-            submitScan(id, "camera");
+            submitScan(id);
           }
         };
 
-        window.Quagga.init({
-          inputStream: {
-            name: "Live",
-            type: "LiveStream",
-            target: quaggaViewport,
-            constraints: {
-              facingMode: "environment"
+        try {
+          window.Quagga.init({
+            inputStream: {
+              name: "Live",
+              type: "LiveStream",
+              target: quaggaViewport,
+              constraints: {
+                facingMode: "environment"
+              }
+            },
+            locator: {
+              patchSize: "medium",
+              halfSample: true
+            },
+            decoder: {
+              readers: [
+                "code_128_reader",
+                "code_39_reader",
+                "codabar_reader",
+                "ean_reader",
+                "ean_8_reader",
+                "upc_reader",
+                "upc_e_reader"
+              ]
+            },
+            locate: true,
+            numOfWorkers: Math.min(2, navigator.hardwareConcurrency || 1)
+          }, function (error) {
+            if (!cameraStarting) {
+              stopQuagga(true);
+              return;
             }
-          },
-          locator: {
-            patchSize: "medium",
-            halfSample: true
-          },
-          decoder: {
-            readers: [
-              "code_128_reader",
-              "code_39_reader",
-              "codabar_reader",
-              "ean_reader",
-              "ean_8_reader",
-              "upc_reader",
-              "upc_e_reader"
-            ]
-          },
-          locate: true,
-          numOfWorkers: Math.min(2, navigator.hardwareConcurrency || 1)
-        }, function (error) {
-          if (error) {
-            stopCamera();
-            setStatus("Could not start live camera: " + (error.message || error), "danger");
-            return;
-          }
 
-          scanning = true;
-          quaggaActive = true;
-          window.Quagga.onDetected(quaggaHandler);
-          window.Quagga.start();
-          setStatus("Scanning...", "");
-        });
+            if (error) {
+              stopCamera();
+              setStatus("Could not start live camera: " + (error.message || error), "danger");
+              return;
+            }
+
+            scanning = true;
+            cameraStarting = false;
+            quaggaActive = true;
+            window.Quagga.onDetected(quaggaHandler);
+            window.Quagga.start();
+            updateControls();
+            setStatus("Scanning...", "");
+          });
+        } catch (error) {
+          stopCamera();
+          setStatus("Could not start live camera: " + (error.message || error), "danger");
+        }
       }
 
       function stopCamera() {
+        cameraStarting = false;
         scanning = false;
         if (frame) cancelAnimationFrame(frame);
         frame = 0;
 
-        if (quaggaActive && window.Quagga) {
-          if (quaggaHandler && window.Quagga.offDetected) {
-            window.Quagga.offDetected(quaggaHandler);
-          }
-          window.Quagga.stop();
-        }
+        stopQuagga(true);
 
         if (stream) {
           stream.getTracks().forEach(function (track) {
@@ -487,11 +542,44 @@
         }
 
         stream = null;
+        detector = null;
         video.srcObject = null;
-        video.hidden = false;
         quaggaActive = false;
         quaggaHandler = null;
         quaggaViewport.innerHTML = "";
+        hideCamera();
+        updateControls();
+      }
+
+      function stopQuagga(force) {
+        if (!window.Quagga) return;
+
+        try {
+          if (quaggaHandler && window.Quagga.offDetected) {
+            window.Quagga.offDetected(quaggaHandler);
+          }
+          if (quaggaActive || force) {
+            window.Quagga.stop();
+          }
+        } catch (error) {
+          // The fallback library can throw if it was stopped during startup.
+        }
+      }
+
+      function showNativeCamera() {
+        liveCameraPanel.hidden = false;
+        video.hidden = false;
+        quaggaViewport.hidden = true;
+      }
+
+      function showQuaggaCamera() {
+        liveCameraPanel.hidden = false;
+        video.hidden = true;
+        quaggaViewport.hidden = false;
+      }
+
+      function hideCamera() {
+        video.hidden = false;
         quaggaViewport.hidden = true;
         liveCameraPanel.hidden = true;
       }
@@ -514,7 +602,7 @@
           if (results && results.length) {
             var id = readFirstCardGameId(results);
             if (id) {
-              await submitScan(id, "camera");
+              await submitScan(id);
             } else {
               setStatus("Ignored barcode. ID must be exactly 10 digits.", "danger");
             }
@@ -528,7 +616,7 @@
         frame = requestAnimationFrame(scanLoop);
       }
 
-      async function submitScan(rawId, source) {
+      async function submitScan(rawId) {
         var id = readId(rawId);
         var now = Date.now();
 
@@ -542,10 +630,16 @@
           return;
         }
 
-        if (id === lastSubmittedId && now - lastSubmittedAt < 8000) {
+        if (submitting || confirmationOpen) {
           return;
         }
 
+        if (id === lastSubmittedId && now - lastSubmittedAt < DUPLICATE_SUPPRESS_MS) {
+          return;
+        }
+
+        submitting = true;
+        updateControls();
         lastSubmittedId = id;
         lastSubmittedAt = now;
 
@@ -556,11 +650,10 @@
             body: JSON.stringify({
               id: id,
               scannerName: scannerName.value.trim() || "phone",
-              scanToken: scanToken,
-              source: source
+              scanToken: scanToken
             })
           });
-          var payload = await response.json();
+          var payload = await readJson(response);
 
           if (!response.ok || !payload.ok) {
             throw new Error(payload.error || "Scan failed.");
@@ -569,7 +662,12 @@
           manualId.value = "";
           showQueue(payload.entry);
         } catch (error) {
+          lastSubmittedId = "";
+          lastSubmittedAt = 0;
           setStatus(error.message, "danger");
+        } finally {
+          submitting = false;
+          updateControls();
         }
       }
 
@@ -580,6 +678,7 @@
         queueCard.hidden = false;
         successModal.hidden = false;
         setStatus(entry.duplicate ? "Already scanned. Use the same queue number." : "Queue number created.", "success");
+        successCloseButton.focus();
         notify();
       }
 
@@ -587,7 +686,21 @@
         confirmationOpen = false;
         lastSubmittedAt = Date.now();
         successModal.hidden = true;
+        updateControls();
         if (!scanning) manualId.focus();
+      }
+
+      async function readJson(response) {
+        var text = await response.text();
+
+        try {
+          return text ? JSON.parse(text) : {};
+        } catch (error) {
+          return {
+            ok: false,
+            error: "Server returned an unreadable response."
+          };
+        }
       }
 
       function notify() {
@@ -597,27 +710,27 @@
           var context = new (window.AudioContext || window.webkitAudioContext)();
           var oscillator = context.createOscillator();
           var gain = context.createGain();
-          oscillator.frequency.value = 880;
-          gain.gain.value = 0.04;
+          oscillator.frequency.value = BEEP_FREQUENCY;
+          gain.gain.value = BEEP_VOLUME;
           oscillator.connect(gain);
           gain.connect(context.destination);
           oscillator.start();
           setTimeout(function () {
             oscillator.stop();
             context.close();
-          }, 120);
+          }, BEEP_DURATION_MS);
         } catch (error) {
           // Vibration is enough when audio is unavailable.
         }
       }
 
-      function normalizeId(value) {
+      function digitsOnly(value) {
         return String(value || "")
           .replace(/\D/g, "");
       }
 
       function readId(value) {
-        var digits = normalizeId(value);
+        var digits = digitsOnly(value);
         return /^\d{10}$/.test(digits) ? digits : "";
       }
 
@@ -644,6 +757,12 @@
       function setStatus(message, type) {
         statusEl.textContent = message;
         statusEl.dataset.type = type || "";
+      }
+
+      function updateControls() {
+        startCameraButton.disabled = cameraStarting || scanning || !scanToken;
+        stopCameraButton.disabled = !cameraStarting && !scanning;
+        manualSubmitButton.disabled = submitting || confirmationOpen || !scanToken;
       }
     })();
   </script>
