@@ -47,6 +47,14 @@
       font-size: 12px;
     }
 
+    .topbar__actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
     main {
       display: grid;
       grid-template-columns: minmax(320px, 420px) 1fr;
@@ -119,14 +127,34 @@
       cursor: pointer;
     }
 
+    .file-button {
+      display: inline-grid;
+      place-items: center;
+      min-height: 40px;
+      border: 1px solid #9aa8b8;
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: #17202a;
+      background: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
     button.primary {
       color: #fff;
       border-color: #157347;
       background: #198754;
     }
 
-    button:hover {
+    button:hover,
+    .file-button:hover {
       background: #eef3f8;
+    }
+
+    .file-button[data-disabled="true"] {
+      opacity: .55;
+      pointer-events: none;
+      cursor: not-allowed;
     }
 
     button.primary:hover {
@@ -190,6 +218,11 @@
       word-break: break-all;
     }
 
+    .id-card .badge {
+      width: max-content;
+      font-style: normal;
+    }
+
     .stats {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -214,6 +247,16 @@
       display: block;
       margin-top: 2px;
       font-size: 22px;
+    }
+
+    .summary {
+      min-height: 34px;
+      border: 1px solid #d5dce5;
+      border-radius: 6px;
+      padding: 7px 9px;
+      color: #526173;
+      background: #fff;
+      font-size: 13px;
     }
 
     table {
@@ -275,6 +318,16 @@
       background: #cfe2ff;
     }
 
+    .badge.preregistered {
+      color: #0f5132;
+      background: #d1e7dd;
+    }
+
+    .badge.not-preregistered {
+      color: #664d03;
+      background: #fff3cd;
+    }
+
     @media (max-width: 820px) {
       main {
         grid-template-columns: 1fr;
@@ -289,7 +342,11 @@
         <h1>Entry Queue Counter</h1>
         <p>Type a queue number to reveal the ID</p>
       </div>
-      <button id="export-csv" type="button">Export CSV</button>
+      <div class="topbar__actions">
+        <label class="file-button" for="prereg-file">Import CSV</label>
+        <button id="export-csv" type="button">Export CSV</button>
+      </div>
+      <input id="prereg-file" type="file" accept=".csv,text/csv" hidden>
     </header>
 
     <main>
@@ -307,9 +364,8 @@
           <div class="id-card" id="id-card" hidden>
             <span>ID</span>
             <strong id="card-game-id"></strong>
+            <em id="selected-prereg" class="badge not-preregistered">Not pre-registered</em>
           </div>
-
-          <button id="lookup" type="button">Lookup</button>
 
           <div id="selected-actions" class="row" hidden>
             <button id="done" class="primary" type="button">Done</button>
@@ -330,6 +386,7 @@
             <div class="stat"><span>Waiting</span><strong id="waiting-count">0</strong></div>
             <div class="stat"><span>Done</span><strong id="done-count">0</strong></div>
           </div>
+          <div id="prereg-summary" class="summary">No pre-registration CSV loaded.</div>
         </div>
 
         <div class="table-wrap">
@@ -338,13 +395,14 @@
               <tr>
                 <th>Queue</th>
                 <th>ID</th>
+                <th>Registration</th>
                 <th>Status</th>
                 <th>Scanner</th>
                 <th>Time</th>
               </tr>
             </thead>
             <tbody id="queue-body">
-              <tr><td colspan="5">No entries yet.</td></tr>
+              <tr><td colspan="6">No entries yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -358,25 +416,30 @@
 
       var ADMIN_TOKEN_KEY = "entry-queue-counter-admin-token";
       var POLL_INTERVAL_MS = 1500;
+      var preregImportLabel = "Import CSV";
       var params = new URLSearchParams(location.search);
       var state = {
         adminToken: params.get("adminToken") || localStorage.getItem(ADMIN_TOKEN_KEY) || "",
+        preRegistrationCount: 0,
         entries: [],
         selected: null
       };
 
       var queueInput = document.getElementById("queue-no");
-      var lookupButton = document.getElementById("lookup");
       var doneButton = document.getElementById("done");
       var waitingButton = document.getElementById("waiting");
+      var preregFileInput = document.getElementById("prereg-file");
+      var preregFileLabel = document.querySelector("label[for='prereg-file']");
       var exportButton = document.getElementById("export-csv");
       var statusEl = document.getElementById("status");
       var idCard = document.getElementById("id-card");
       var idEl = document.getElementById("card-game-id");
+      var selectedPrereg = document.getElementById("selected-prereg");
       var queueBody = document.getElementById("queue-body");
       var selectedActions = document.getElementById("selected-actions");
       var waitingCount = document.getElementById("waiting-count");
       var doneCount = document.getElementById("done-count");
+      var preregSummary = document.getElementById("prereg-summary");
 
       if (params.get("adminToken")) {
         localStorage.setItem(ADMIN_TOKEN_KEY, state.adminToken);
@@ -394,12 +457,17 @@
         }
       });
 
-      lookupButton.addEventListener("click", lookup);
       doneButton.addEventListener("click", function () {
         updateSelectedStatus("done");
       });
       waitingButton.addEventListener("click", function () {
         updateSelectedStatus("waiting");
+      });
+      preregFileInput.addEventListener("click", function () {
+        preregFileInput.value = "";
+      });
+      preregFileInput.addEventListener("change", function () {
+        importPreRegistrationFile(preregFileInput.files && preregFileInput.files[0]);
       });
       exportButton.addEventListener("click", exportCsv);
 
@@ -433,6 +501,7 @@
 
         state.selected = entry;
         idEl.textContent = entry.id;
+        renderRegistrationBadge(selectedPrereg, entry);
         idCard.hidden = false;
         selectedActions.hidden = false;
         queueInput.value = "";
@@ -480,6 +549,7 @@
           return response.json().then(function (payload) {
             if (!response.ok || !payload.ok) throw new Error(payload.error || "Queue load failed.");
             state.entries = Array.isArray(payload.entries) ? payload.entries : [];
+            state.preRegistrationCount = Number(payload.preRegistrationCount || 0);
             renderQueue();
           });
         }).catch(function (error) {
@@ -498,6 +568,18 @@
 
         waitingCount.textContent = String(waiting);
         doneCount.textContent = String(done);
+        preregSummary.textContent = state.preRegistrationCount
+          ? state.preRegistrationCount + " pre-registered IDs loaded."
+          : "No pre-registration CSV loaded.";
+
+        if (state.selected) {
+          state.selected = findEntry(state.selected.queueNo);
+          if (state.selected) {
+            renderRegistrationBadge(selectedPrereg, state.selected);
+          } else {
+            clearSelected();
+          }
+        }
 
         var visible = state.entries.slice().sort(function (a, b) {
           return Number(a.queueNo) - Number(b.queueNo);
@@ -508,19 +590,21 @@
           return "<tr data-queue-no=\"" + escapeHtml(entry.queueNo) + "\">" +
             "<td>" + escapeHtml(entry.queueNo) + "</td>" +
             "<td>" + escapeHtml(entry.id) + "</td>" +
+            "<td><span class=\"badge " + registrationClass(entry) + "\">" + escapeHtml(registrationLabel(entry)) + "</span></td>" +
             "<td><span class=\"badge " + escapeHtml(entry.status) + "\">" + escapeHtml(statusLabel(entry.status)) + "</span></td>" +
             "<td>" + escapeHtml(entry.scannerName || "") + "</td>" +
             "<td>" + escapeHtml(time) + "</td>" +
             "</tr>";
-        }).join("") || "<tr><td colspan=\"5\">No entries yet.</td></tr>";
+        }).join("") || "<tr><td colspan=\"6\">No entries yet.</td></tr>";
       }
 
       function exportCsv() {
-        var rows = [["queueNo", "id", "status", "scannerName", "scannedAt", "doneAt"]];
+        var rows = [["queueNo", "id", "preRegistered", "status", "scannerName", "scannedAt", "doneAt"]];
         state.entries.forEach(function (entry) {
           rows.push([
             entry.queueNo,
             entry.id,
+            entry.preRegistered ? "yes" : "no",
             entry.status,
             entry.scannerName || "",
             entry.scannedAt || "",
@@ -541,6 +625,115 @@
         link.remove();
       }
 
+      function importPreRegistrationFile(file) {
+        if (!file) return;
+
+        if (!hasAdminToken()) return;
+
+        setImporting(true, "Reading CSV...");
+        setStatus("Reading " + file.name + "...", "");
+
+        var reader = new FileReader();
+        reader.onload = function () {
+          var ids = extractPreRegistrationIds(String(reader.result || ""));
+          if (!ids.length) {
+            setStatus("No 10-digit IDs found in that CSV.", "danger");
+            setImporting(false);
+            return;
+          }
+
+          uploadPreRegistrationIds(ids, file.name);
+        };
+        reader.onerror = function () {
+          setStatus("Could not read that CSV file.", "danger");
+          setImporting(false);
+        };
+        reader.readAsText(file);
+      }
+
+      function uploadPreRegistrationIds(ids, fileName) {
+        if (!hasAdminToken()) {
+          setImporting(false);
+          return;
+        }
+
+        setImporting(true, "Uploading...");
+        setStatus("Uploading " + ids.length + " pre-registered IDs...", "");
+
+        fetch("/api/preregistration", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Admin-Token": state.adminToken
+          },
+          body: JSON.stringify({ ids: ids })
+        }).then(function (response) {
+          return response.json().then(function (payload) {
+            if (!response.ok || !payload.ok) throw new Error(payload.error || "Import failed.");
+            state.preRegistrationCount = Number(payload.count || ids.length);
+            setStatus("Loaded " + state.preRegistrationCount + " pre-registered IDs from " + fileName + ".", "success");
+            poll();
+          });
+        }).catch(function (error) {
+          setStatus(error.message, "danger");
+        }).finally(function () {
+          setImporting(false);
+        });
+      }
+
+      function extractPreRegistrationIds(text) {
+        var seen = {};
+        var ids = [];
+
+        parseCsv(text).forEach(function (row) {
+          row.forEach(function (cell) {
+            var id = readCardGameId(cell);
+            if (id && !seen[id]) {
+              seen[id] = true;
+              ids.push(id);
+            }
+          });
+        });
+
+        return ids;
+      }
+
+      function parseCsv(text) {
+        var rows = [];
+        var row = [];
+        var cell = "";
+        var inQuotes = false;
+
+        for (var i = 0; i < text.length; i += 1) {
+          var character = text[i];
+          var next = text[i + 1];
+
+          if (character === "\"") {
+            if (inQuotes && next === "\"") {
+              cell += "\"";
+              i += 1;
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (character === "," && !inQuotes) {
+            row.push(cell);
+            cell = "";
+          } else if ((character === "\n" || character === "\r") && !inQuotes) {
+            if (character === "\r" && next === "\n") i += 1;
+            row.push(cell);
+            rows.push(row);
+            row = [];
+            cell = "";
+          } else {
+            cell += character;
+          }
+        }
+
+        row.push(cell);
+        rows.push(row);
+        return rows;
+      }
+
       function findEntry(queueNo) {
         return state.entries.find(function (entry) {
           return entry.queueNo === queueNo;
@@ -550,6 +743,8 @@
       function clearSelected() {
         state.selected = null;
         idEl.textContent = "";
+        selectedPrereg.textContent = "Not pre-registered";
+        selectedPrereg.className = "badge not-preregistered";
         idCard.hidden = true;
         selectedActions.hidden = true;
       }
@@ -568,6 +763,11 @@
           .replace(/\D/g, "");
       }
 
+      function readCardGameId(value) {
+        var digits = digitsOnly(value);
+        return /^\d{10}$/.test(digits) ? digits : "";
+      }
+
       function normalizeQueueNo(value) {
         var digits = digitsOnly(value);
         var unpadded = digits.replace(/^0+/, "");
@@ -577,6 +777,24 @@
 
       function statusLabel(status) {
         return status || "unknown";
+      }
+
+      function registrationLabel(entry) {
+        return entry && entry.preRegistered ? "Pre-registered" : "Not pre-registered";
+      }
+
+      function registrationClass(entry) {
+        return entry && entry.preRegistered ? "preregistered" : "not-preregistered";
+      }
+
+      function renderRegistrationBadge(element, entry) {
+        element.textContent = registrationLabel(entry);
+        element.className = "badge " + registrationClass(entry);
+      }
+
+      function setImporting(importing, label) {
+        preregFileLabel.textContent = importing ? label : preregImportLabel;
+        preregFileLabel.dataset.disabled = importing ? "true" : "false";
       }
 
       function setStatus(message, type) {

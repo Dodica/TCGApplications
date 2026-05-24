@@ -86,7 +86,7 @@ const requestHandler = async (req, res) => {
       sendJson(res, 200, {
         ok: true,
         duplicate: Boolean(entry.duplicate),
-        entry
+        entry: decorateEntry(entry)
       });
       return;
     }
@@ -99,9 +99,27 @@ const requestHandler = async (req, res) => {
 
       sendJson(res, 200, {
         ok: true,
-        entries: store.entries,
+        entries: decoratedEntries(),
         nextQueueNo: formatQueueNo(store.nextNumber),
+        preRegistrationCount: store.preRegisteredIds.length,
         updatedAt: new Date().toISOString()
+      });
+      return;
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/preregistration") {
+      if (!hasAdminAccess(req, url)) {
+        sendJson(res, 403, { ok: false, error: "Invalid admin token." });
+        return;
+      }
+
+      const body = await readJson(req);
+      const ids = normalizeIdList(body.ids || body.preRegisteredIds || body.csv || body.text);
+      store.preRegisteredIds = ids;
+      saveStore();
+      sendJson(res, 200, {
+        ok: true,
+        count: ids.length
       });
       return;
     }
@@ -128,7 +146,7 @@ const requestHandler = async (req, res) => {
       }
 
       saveStore();
-      sendJson(res, 200, { ok: true, entry: result.entry });
+      sendJson(res, 200, { ok: true, entry: decorateEntry(result.entry) });
       return;
     }
 
@@ -226,6 +244,7 @@ function normalizeStore(parsed) {
     return {
       version: STORE_VERSION,
       nextNumber: Math.max(positiveInteger(parsed.nextNumber, 1), nextNumberAfter(entries)),
+      preRegisteredIds: normalizeIdList(parsed.preRegisteredIds),
       entries
     };
   }
@@ -254,7 +273,7 @@ function normalizeEntry(entry) {
 }
 
 function defaultStore() {
-  return { version: STORE_VERSION, nextNumber: 1, entries: [] };
+  return { version: STORE_VERSION, nextNumber: 1, preRegisteredIds: [], entries: [] };
 }
 
 function nextNumberAfter(entries) {
@@ -267,6 +286,21 @@ function saveStore() {
   const tmp = `${STORE_FILE}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(store, null, 2));
   fs.renameSync(tmp, STORE_FILE);
+}
+
+function decoratedEntries() {
+  return store.entries.map(decorateEntry);
+}
+
+function decorateEntry(entry) {
+  return {
+    ...entry,
+    preRegistered: isPreRegistered(entry.id)
+  };
+}
+
+function isPreRegistered(id) {
+  return store.preRegisteredIds.includes(id);
 }
 
 function loadTokens() {
@@ -323,6 +357,38 @@ function hasAdminAccess(req, url) {
 function normalizeId(value) {
   return String(value || "")
     .replace(/\D/g, "");
+}
+
+function normalizeIdList(value) {
+  const candidates = Array.isArray(value)
+    ? value
+    : idCandidatesFromText(value);
+  const seen = new Set();
+  const ids = [];
+
+  candidates.forEach((candidate) => {
+    const id = normalizeId(candidate);
+    if (isCardGameId(id) && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  });
+
+  return ids;
+}
+
+function idCandidatesFromText(value) {
+  const matches = [];
+  const pattern = /(?:^|\D)(\d{10})(?=\D|$)/g;
+  const text = String(value || "");
+  let match = pattern.exec(text);
+
+  while (match) {
+    matches.push(match[1]);
+    match = pattern.exec(text);
+  }
+
+  return matches;
 }
 
 function isCardGameId(value) {
@@ -439,7 +505,7 @@ function sendJson(res, statusCode, payload) {
 
 function setCorsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type,X-Admin-Token");
   res.setHeader("Access-Control-Max-Age", "86400");
 }
