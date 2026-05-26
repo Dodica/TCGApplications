@@ -146,6 +146,12 @@
       background: #198754;
     }
 
+    button.danger {
+      color: #842029;
+      border-color: #b02a37;
+      background: #fff;
+    }
+
     button:hover,
     .file-button:hover {
       background: #eef3f8;
@@ -159,6 +165,10 @@
 
     button.primary:hover {
       background: #157347;
+    }
+
+    button.danger:hover {
+      background: #fff1f2;
     }
 
     .row {
@@ -345,6 +355,7 @@
       <div class="topbar__actions">
         <label class="file-button" for="prereg-file">Import CSV</label>
         <button id="export-csv" type="button">Export CSV</button>
+        <button id="clear-queue" class="danger" type="button">Clear Queue</button>
       </div>
       <input id="prereg-file" type="file" accept=".csv,text/csv" hidden>
     </header>
@@ -431,6 +442,7 @@
       var preregFileInput = document.getElementById("prereg-file");
       var preregFileLabel = document.querySelector("label[for='prereg-file']");
       var exportButton = document.getElementById("export-csv");
+      var clearQueueButton = document.getElementById("clear-queue");
       var statusEl = document.getElementById("status");
       var idCard = document.getElementById("id-card");
       var idEl = document.getElementById("card-game-id");
@@ -470,6 +482,7 @@
         importPreRegistrationFile(preregFileInput.files && preregFileInput.files[0]);
       });
       exportButton.addEventListener("click", exportCsv);
+      clearQueueButton.addEventListener("click", clearQueue);
 
       queueBody.addEventListener("click", function (event) {
         var row = event.target.closest("tr[data-queue-no]");
@@ -623,6 +636,31 @@
         link.click();
         URL.revokeObjectURL(link.href);
         link.remove();
+      }
+
+      function clearQueue() {
+        if (!hasAdminToken()) return;
+
+        if (!confirm("Clear all queue entries and restart numbering at 001? The imported CSV stays loaded.")) {
+          return;
+        }
+
+        fetch("/api/queue", {
+          method: "DELETE",
+          headers: { "X-Admin-Token": state.adminToken }
+        }).then(function (response) {
+          return response.json().then(function (payload) {
+            if (!response.ok || !payload.ok) throw new Error(payload.error || "Clear failed.");
+            state.entries = [];
+            clearSelected();
+            renderQueue();
+            queueInput.focus();
+            setStatus("Queue cleared. Next scan will be 001.", "success");
+            poll();
+          });
+        }).catch(function (error) {
+          setStatus(error.message, "danger");
+        });
       }
 
       function importPreRegistrationFile(file) {

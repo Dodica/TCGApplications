@@ -107,6 +107,22 @@ const requestHandler = async (req, res) => {
       return;
     }
 
+    if (req.method === "DELETE" && url.pathname === "/api/queue") {
+      if (!hasAdminAccess(req, url)) {
+        sendJson(res, 403, { ok: false, error: "Invalid admin token." });
+        return;
+      }
+
+      clearQueue();
+      saveStore();
+      sendJson(res, 200, {
+        ok: true,
+        nextQueueNo: formatQueueNo(store.nextNumber),
+        preRegistrationCount: store.preRegisteredIds.length
+      });
+      return;
+    }
+
     if (req.method === "PUT" && url.pathname === "/api/preregistration") {
       if (!hasAdminAccess(req, url)) {
         sendJson(res, 403, { ok: false, error: "Invalid admin token." });
@@ -286,6 +302,11 @@ function saveStore() {
   const tmp = `${STORE_FILE}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(store, null, 2));
   fs.renameSync(tmp, STORE_FILE);
+}
+
+function clearQueue() {
+  store.entries = [];
+  store.nextNumber = 1;
 }
 
 function decoratedEntries() {
@@ -505,7 +526,7 @@ function sendJson(res, statusCode, payload) {
 
 function setCorsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type,X-Admin-Token");
   res.setHeader("Access-Control-Max-Age", "86400");
 }
